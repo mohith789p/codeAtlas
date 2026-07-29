@@ -1,0 +1,36 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+
+# Logs / Temp
+*.log
+*.tmp
+*.temp

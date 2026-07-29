@@ -1,0 +1,26 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.vite/
+.next/
+.nuxt/
+.turbo/
+.vercel/
+coverage/
+
+# Logs / Temp
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+*.temp
