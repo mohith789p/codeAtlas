@@ -32,11 +32,11 @@ class RetrievalService:
                 query_str = f"[{','.join(map(str, query_vec))}]"
                 sql = text("""
                     SELECT c.id, c.file_id, c.start_line, c.end_line, c.content, f.path,
-                           1 - (c.embedding <=> :query_vec::vector) AS similarity
+                           1 - (c.embedding <=> CAST(:query_vec AS vector)) AS similarity
                     FROM code_chunks c
                     JOIN files f ON c.file_id = f.id
                     WHERE c.repo_id = :repo_id
-                    ORDER BY c.embedding <=> :query_vec::vector ASC
+                    ORDER BY c.embedding <=> CAST(:query_vec AS vector) ASC
                     LIMIT :top_k
                 """)
                 res = db.execute(sql, {"repo_id": repo_id, "query_vec": query_str, "top_k": top_k}).fetchall()
