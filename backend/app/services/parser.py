@@ -9,7 +9,7 @@ IGNORED_DIRS = {
 }
 
 IGNORED_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".pdf", ".zip", ".tar",
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".pdf", ".docx", ".doc", ".zip", ".tar",
     ".gz", ".exe", ".dll", ".so", ".dylib", ".pyc", ".lock", ".db", ".sqlite"
 }
 
