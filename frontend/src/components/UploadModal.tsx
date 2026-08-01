@@ -16,7 +16,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  if (!isOpen) return null;
 
   const validateAndSetFile = (selected: File) => {
     if (!selected.name.endsWith('.zip')) {
@@ -87,6 +86,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     }
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
@@ -129,11 +130,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
-          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-            isDragging
-              ? 'border-indigo-500 bg-indigo-600/10 scale-[1.01]'
-              : 'border-slate-700 hover:border-indigo-500/50 bg-slate-900/40'
-          }`}
+          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${isDragging
+            ? 'border-indigo-500 bg-indigo-600/10 scale-[1.01]'
+            : 'border-slate-700 hover:border-indigo-500/50 bg-slate-900/40'
+            }`}
         >
           <input
             type="file"
