@@ -24,6 +24,14 @@ def init_db():
                 conn.commit()
             except Exception as e:
                 print(f"[Warning] Failed to enable pgvector extension: {e}")
+            
+            try:
+                conn.execute(text(f"ALTER TABLE code_chunks ALTER COLUMN embedding TYPE vector({settings.EMBEDDING_DIMENSION});"))
+                conn.commit()
+                print(f"[DB Migration] Verified/upgraded code_chunks.embedding column to vector({settings.EMBEDDING_DIMENSION}).")
+            except Exception as e:
+                # Table may not exist yet; create_all will create it with Vector(3072)
+                pass
     Base.metadata.create_all(bind=engine)
 
 def get_db():

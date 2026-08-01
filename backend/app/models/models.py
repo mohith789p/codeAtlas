@@ -2,13 +2,14 @@ import json
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
+from app.core.config import settings
 from app.core.database import Base, is_sqlite
 
-# Try importing Vector from pgvector if postgres
+# Try importing Vector from pgvector if postgres (Gemini native embedding dimension = 3072)
 if not is_sqlite:
     try:
         from pgvector.sqlalchemy import Vector
-        EmbeddingColumn = Vector(768)
+        EmbeddingColumn = Vector(settings.EMBEDDING_DIMENSION)
     except ImportError:
         EmbeddingColumn = Text
 else:
@@ -66,15 +67,27 @@ class CodeChunk(Base):
     end_line = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     
-    # Store embedding as Vector if pgvector, otherwise JSON text string
+    # Store embedding as Vector(3072) if pgvector, otherwise JSON text string.
+    # Note: Gemini embedding vectors are 3072 dimensions natively.
     embedding = Column(EmbeddingColumn, nullable=True)
 
     file = relationship("File", back_populates="chunks")
     repository = relationship("Repository", back_populates="chunks")
 
-    def set_embedding(self, vec_list):
+    def set_embedding(self, vec_list: list):
+        """
+        Sets and validates the embedding vector for the code chunk.
+        Gemini embedding vectors are 3072 dimensions natively.
+        - For PostgreSQL: requires length == 3072.
+        - For SQLite fallback: stores JSON string normally.
+        """
+        if vec_list is not None:
+            if len(vec_list) != settings.EMBEDDING_DIMENSION:
+                raise ValueError(
+                    f"Invalid embedding dimension: expected {settings.EMBEDDING_DIMENSION}, got {len(vec_list)}"
+                )
         if is_sqlite or isinstance(EmbeddingColumn, Text):
-            self.embedding = json.dumps(vec_list)
+            self.embedding = json.dumps(vec_list) if vec_list is not None else None
         else:
             self.embedding = vec_list
 

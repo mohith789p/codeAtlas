@@ -45,7 +45,7 @@ export const Sidebar: React.FC = () => {
           <span>pgvector Enabled</span>
         </div>
         <p className="text-slate-400 leading-relaxed text-[11px]">
-          CodeAtlas uses 768-dim embeddings with cosine distance for instant RAG code retrieval.
+          CodeAtlas uses 3072-dim embeddings with cosine distance for instant RAG code retrieval.
         </p>
       </div>
     </aside>
