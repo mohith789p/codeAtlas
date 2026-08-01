@@ -15,7 +15,7 @@ Parser Service (File Extraction & Line Chunking)
         ↓
 Embedding Service (Gemini text-embedding-004)
         ↓
-PostgreSQL + pgvector Vector Storage (768-dim embeddings)
+PostgreSQL + pgvector Vector Storage (3072-dim embeddings)
         ↓
 User Semantic Search / RAG Chat Query
         ↓
@@ -34,7 +34,7 @@ Grounded Architectural Explanation with Source Citations
 
 1. **User Authentication**: Secure JWT-based registration and token-based protected API routes.
 2. **Repository Upload & Chunking**: Background tasks extract `.zip` repositories, filter binary files/dependencies, and parse source code into overlapping line chunks.
-3. **Vector Embeddings**: Uses Gemini Embedding API (`text-embedding-004`) to convert code chunks into 768-dimensional dense vectors.
+3. **Vector Embeddings**: Uses Gemini Embedding API (`gemini-embedding-001`) to convert code chunks into 3072-dimensional dense vectors.
 4. **Vector Similarity Search**: Native PostgreSQL `pgvector` similarity calculation with Python fallback for SQLite environments.
 5. **RAG Q&A Engine**: Question-answering assistant that injects **ONLY** retrieved relevant code snippets into Gemini prompts, preserving prompt privacy and preventing code hallucination.
 6. **Documentation Generator**: One-click generation of comprehensive GitHub `README.md` files and Senior Architecture Specifications.
@@ -47,7 +47,7 @@ Grounded Architectural Explanation with Source Citations
 - **Frontend**: React 18, Vite, TypeScript, TailwindCSS (Dark Glassmorphic UI), Axios, React Router.
 - **Backend**: FastAPI, SQLAlchemy ORM, Pydantic v2, Python-Jose (JWT), BackgroundTasks.
 - **Database**: PostgreSQL 16 with `pgvector` extension (with SQLite fallback).
-- **Artificial Intelligence**: Gemini API (`gemini-1.5-flash` / `gemini-2.5-flash`) & Gemini Embedding API (`text-embedding-004`).
+- **Artificial Intelligence**: Gemini API (`gemini-1.5-flash` / `gemini-2.5-flash`) & Gemini Embedding API (`gemini-embedding-001`).
 
 ---
 

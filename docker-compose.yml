@@ -19,12 +19,12 @@ services:
   backend:
     build: ./backend
     container_name: codeatlas-backend
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/codeatlas
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      JWT_SECRET: ${JWT_SECRET:-supersecretjwtkey12345}
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,6 +34,8 @@ services:
   frontend:
     build: ./frontend
     container_name: codeatlas-frontend
+    env_file:
+      - .env
     ports:
       - "3000:80"
     depends_on:
