@@ -1,0 +1,181 @@
+/*
+ * CodeAtlas — index.css
+ * Global reset, base typography, and utility classes.
+ * All values come from tokens.css — no raw values here.
+ */
+
+@import './tokens.css';
+
+/* ─── Reset ─── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Shared loading indicator: animated violet hourglass/fill loader. */
+.codeatlas-loader {
+  --c1: var(--accent-violet-ui);
+  --c2: var(--accent-violet-soft);
+  --s: calc(var(--loader-size) * 0.0375);
+  width: calc(var(--loader-size) * 0.5);
+  height: var(--loader-size);
+  border-top: 2px solid var(--c1);
+  border-bottom: 2px solid var(--c1);
+  background: linear-gradient(90deg, var(--c1) 2px, var(--c2) 0 5px, var(--c1) 0) 50%/7px 8px no-repeat;
+  display: grid;
+  overflow: hidden;
+  flex: 0 0 auto;
+  animation: codeatlas-loader-rotate 2s infinite linear;
+}
+
+.codeatlas-loader::before,
+.codeatlas-loader::after {
+  content: '';
+  grid-area: 1 / 1;
+  width: 75%;
+  height: calc(50% - 2px);
+  margin: 0 auto;
+  border: 1px solid var(--c1);
+  border-top: 0;
+  box-sizing: content-box;
+  border-radius: 0 0 40% 40%;
+  -webkit-mask:
+    linear-gradient(#000 0 0) bottom/4px 2px no-repeat,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  background:
+    linear-gradient(var(--d, 0deg), var(--c2) 50%, #0000 0) bottom / 100% 205%,
+    linear-gradient(var(--c2) 0 0) center / 0 100%;
+  background-repeat: no-repeat;
+  animation: inherit;
+  animation-name: codeatlas-loader-fill;
+}
+
+.codeatlas-loader::after {
+  transform-origin: 50% calc(100% + 1px);
+  transform: scaleY(-1);
+  --d: 180deg;
+}
+
+@keyframes codeatlas-loader-rotate {
+  80% { transform: rotate(0); }
+  100% { transform: rotate(0.5turn); }
+}
+
+@keyframes codeatlas-loader-fill {
+  10%, 70% { background-size: 100% 205%, var(--s, 0) 100%; }
+  70%, 100% { background-position: top, center; }
+}
+
+/* ─── Focus States ─── */
+/* Remove default outline, replace with design-system focus ring */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-input);
+}
+
+/* ─── Links ─── */
+a {
+  color: var(--accent-violet-soft);
+  text-decoration: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+a:hover {
+  opacity: 0.85;
+  text-decoration: underline;
+}
+
+a:focus-visible {
+  box-shadow: var(--focus-ring);
+  border-radius: 2px;
+}
+
+/* ─── Typography utilities ─── */
+.text-primary   { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-muted     { color: var(--text-muted); }
+.text-metadata  { color: var(--text-metadata); }
+.text-disabled  { color: var(--text-disabled); }
+.text-accent    { color: var(--accent-violet-soft); }
+.text-success   { color: var(--success); }
+.text-warning   { color: var(--warning); }
+.text-error     { color: var(--error); }
+
+.text-hero         { font-size: var(--text-hero); font-weight: var(--weight-semibold); line-height: var(--leading-tight); }
+.text-repo-name    { font-size: var(--text-repo-name); font-weight: var(--weight-semibold); line-height: var(--leading-tight); }
+.text-page-title   { font-size: var(--text-page-title); font-weight: var(--weight-semibold); line-height: var(--leading-snug); }
+.text-section      { font-size: var(--text-section-heading); font-weight: var(--weight-semibold); line-height: var(--leading-snug); }
+.text-body         { font-size: var(--text-body); font-weight: var(--weight-regular); line-height: var(--leading-normal); }
+.text-sm           { font-size: var(--text-secondary-sm); }
+.text-meta         { font-size: var(--text-meta); }
+.text-nav          { font-size: var(--text-nav); font-weight: var(--weight-medium); }
+.font-code         { font-family: var(--font-code); font-size: var(--text-code); }
+.font-medium       { font-weight: var(--weight-medium); }
+.font-semibold     { font-weight: var(--weight-semibold); }
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* ─── Selection ─── */
+::selection {
+  background: rgba(139, 92, 246, 0.25);
+  color: var(--text-primary);
+}
+
+/* ─── Utilities ─── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

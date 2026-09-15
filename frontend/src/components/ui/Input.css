@@ -1,0 +1,86 @@
+/*
+ * Input — Foundations §3 (Ingestion page field anatomy)
+ * States: rest (border-subtle), hover (border-hover), focus (border-focus + ring)
+ * Error: border-error + error text below
+ */
+
+.input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-label {
+  font-size: 0.8125rem;
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  line-height: var(--leading-snug);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.input-label-optional {
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+}
+
+.input-field {
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  color: var(--text-primary);
+  background-color: rgba(13, 17, 23, 0.75);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-input);
+  padding: 10px 13px;
+  line-height: var(--leading-normal);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.input-field::placeholder {
+  color: rgba(154, 149, 163, 0.55);
+}
+
+.input-field:hover:not(:disabled):not(:focus) {
+  border-color: var(--border-hover);
+  background-color: rgba(13, 17, 23, 0.95);
+}
+
+.input-field:focus {
+  border-color: var(--accent-violet-ui);
+  background-color: rgba(16, 21, 30, 0.95);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.22);
+  outline: none;
+}
+
+/* Error state */
+.input-field.input-error {
+  border-color: var(--border-error);
+}
+
+.input-field.input-error:focus {
+  border-color: var(--border-error);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.2);
+}
+
+.input-error-msg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-meta);
+  color: var(--error);
+  line-height: var(--leading-snug);
+  margin-top: 2px;
+}
+
+.input-field:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

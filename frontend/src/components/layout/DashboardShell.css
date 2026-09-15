@@ -1,0 +1,217 @@
+/*
+ * Dashboard Shell — 04-dashboard-shell.md
+ * Sidebar (Level 1), content area (Level 0), navigation items
+ */
+
+/* ── App Shell Layout ── */
+.shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  background-color: var(--bg-sidebar);
+  border-right: var(--border-width) solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 10;
+}
+
+/* ── Identity Block ── */
+.sidebar-identity {
+  padding: var(--space-6) var(--space-4) var(--space-8);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.sidebar-logo-mark {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.sidebar-wordmark {
+  font-size: var(--text-nav);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+/* ── Primary Navigation ── */
+.sidebar-nav {
+  flex: 1;
+  padding: 0 var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* ── Nav Item ── */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-nav);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  position: relative;
+  transition:
+    background-color var(--duration-nav) var(--ease-in-out),
+    color var(--duration-nav) var(--ease-in-out);
+  outline: none;
+}
+
+/* Left active indicator bar */
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--border-indicator);
+  height: 60%;
+  border-radius: 0 2px 2px 0;
+  background-color: transparent;
+  transition: background-color var(--duration-nav) var(--ease-in-out);
+}
+
+/* Hover — inactive item only */
+.nav-item:hover:not(.nav-item-active) {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
+.nav-item-disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Active state — all 4 signals simultaneously */
+.nav-item-active {
+  background-color: rgba(139, 92, 246, 0.1);
+  color: var(--text-primary);
+}
+
+.nav-item-active::before {
+  background-color: var(--accent-violet-ui);
+}
+
+.nav-item-active .nav-item-icon {
+  color: var(--accent-violet-ui);
+}
+
+/* Focus-visible — distinct from active so keyboard users can tell apart */
+.nav-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--border-focus);
+  border-radius: var(--radius-sm);
+}
+
+/* Icon color */
+.nav-item-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  transition: color var(--duration-nav) var(--ease-in-out);
+  display: flex;
+  align-items: center;
+}
+
+/* ── Content Area ── */
+.shell-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform var(--duration-panel) var(--ease-in-out);
+    z-index: 100;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .shell-content {
+    width: 100%;
+  }
+
+  .mobile-nav-toggle {
+    display: flex;
+  }
+}
+
+@media (min-width: 769px) {
+  .mobile-nav-toggle {
+    display: none;
+  }
+}
+
+/* Mobile topbar */
+.mobile-topbar {
+  display: none;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--bg-sidebar);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .mobile-topbar {
+    display: flex;
+  }
+}
+
+.mobile-nav-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+}
+
+@media (max-width: 768px) {
+  .sidebar-overlay.sidebar-open {
+    display: block;
+  }
+}

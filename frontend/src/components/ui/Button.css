@@ -1,0 +1,130 @@
+/*
+ * Button — all states derived from Foundations §6
+ * Implements: default, hover, focus, pressed, disabled
+ * Variants: primary (filled CTA), secondary (outlined/ghost), icon
+ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-nav);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-btn);
+  border: var(--border-width) solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+  user-select: none;
+  position: relative;
+}
+
+.btn:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+/* ── Primary (Filled CTA) — Foundations §6 ── */
+.btn-primary {
+  background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 2px 8px rgba(124, 58, 237, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-primary:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 16px rgba(124, 58, 237, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: linear-gradient(180deg, #7c3aed 0%, #6d28d9 100%);
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(124, 58, 237, 0.3);
+}
+
+.btn-primary:disabled {
+  background: var(--bg-surface);
+  color: var(--text-disabled);
+  border-color: var(--border-subtle);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Secondary (Outlined/Ghost) ── */
+.btn-secondary {
+  background-color: transparent;
+  color: var(--accent-violet-soft);
+  border-color: var(--border-subtle);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background-color: var(--bg-surface);
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: var(--duration-fast);
+}
+
+.btn-secondary:disabled {
+  color: var(--text-disabled);
+  border-color: var(--border-subtle);
+  cursor: not-allowed;
+}
+
+/* ── Ghost (no border) ── */
+.btn-ghost {
+  background-color: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.btn-ghost:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-ghost:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+/* ── Icon-only button ── */
+.btn-icon {
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Size variants ── */
+.btn-sm {
+  font-size: var(--text-meta);
+  padding: var(--space-1) var(--space-3);
+}
+
+.btn-lg {
+  font-size: var(--text-body);
+  padding: 11px var(--space-6);
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.01em;
+}

@@ -1,0 +1,272 @@
+/*
+ * Home Page — Ingestion Entry
+ * Layout: brand → headline → inline tabbed connection form → reassurance
+ */
+
+.home {
+  min-height: 100vh;
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(ellipse 650px 320px at 50% 12%, rgba(139, 92, 246, 0.14), transparent 70%),
+    radial-gradient(ellipse 450px 250px at 50% 88%, rgba(236, 72, 153, 0.05), transparent 70%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4) var(--space-12);
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* ── Brand mark ── */
+.home-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  animation: fadeSlideUp var(--duration-panel) var(--ease-out) both;
+}
+
+.home-brand-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 8px;
+  filter: drop-shadow(0 0 12px rgba(139, 92, 246, 0.35));
+}
+
+.home-brand-name {
+  font-size: 1.0625rem;
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+}
+
+/* ── Headline block ── */
+.home-headline-block {
+  text-align: center;
+  max-width: 600px;
+  margin-bottom: var(--space-8);
+  animation: fadeSlideUp var(--duration-panel) var(--ease-out) 50ms both;
+}
+
+.home-headline {
+  font-size: clamp(2.25rem, 4.5vw, 3.25rem);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin-bottom: var(--space-3);
+}
+
+.home-headline-gradient {
+  background: linear-gradient(135deg, #c084fc 0%, #ec4899 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.home-supporting {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+  max-width: 46ch;
+  margin: 0 auto;
+}
+
+/* ── Connection card ── */
+.home-card {
+  width: 100%;
+  max-width: 480px;
+  background: linear-gradient(180deg, rgba(27, 24, 37, 0.78) 0%, rgba(21, 19, 29, 0.92) 100%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-modal);
+  padding: var(--space-6);
+  box-shadow:
+    0 20px 48px -12px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  margin-bottom: var(--space-6);
+  animation: fadeSlideUp var(--duration-panel) var(--ease-out) 100ms both;
+}
+
+/* ── Tab switcher ── */
+.tab-switcher {
+  display: flex;
+  gap: 4px;
+  background-color: rgba(13, 17, 23, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: var(--space-4);
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+  background-color: transparent;
+  color: var(--text-secondary);
+  outline: none;
+}
+
+.tab-btn:hover:not(.tab-btn-active) {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+}
+
+.tab-btn-active {
+  background-color: rgba(139, 92, 246, 0.12);
+  color: var(--accent-violet-soft);
+  border-color: rgba(139, 92, 246, 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.tab-btn:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--border-focus);
+}
+
+.tab-btn-icon {
+  flex-shrink: 0;
+  color: inherit;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Form fields ── */
+.home-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.home-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: fadeSlideUp 150ms var(--ease-out) both;
+}
+
+.home-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+/* Submit row */
+.home-form-actions {
+  margin-top: var(--space-2);
+}
+
+/* Error banner */
+.home-form-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background-color: rgba(248, 113, 113, 0.1);
+  border: var(--border-width) solid rgba(248, 113, 113, 0.35);
+  border-radius: var(--radius-sm);
+  color: var(--error);
+  font-size: var(--text-meta);
+  line-height: var(--leading-normal);
+}
+
+/* ── Loading overlay ── */
+.home-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8) 0;
+  text-align: center;
+}
+
+.home-loading-label {
+  font-size: var(--text-secondary-sm);
+  color: var(--text-secondary);
+}
+
+.home-loading-sublabel {
+  font-size: var(--text-meta);
+  color: var(--text-muted);
+}
+
+/* ── Reassurance ── */
+.home-reassurance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+  line-height: var(--leading-normal);
+  text-align: center;
+  width: fit-content;
+  max-width: 100%;
+  animation: fadeSlideUp var(--duration-panel) var(--ease-out) 150ms both;
+}
+
+.home-reassurance-icon {
+  flex-shrink: 0;
+  color: var(--accent-violet-soft);
+  opacity: 0.85;
+}
+
+/* ── Keyframes ── */
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .home {
+    padding: var(--space-8) var(--space-4);
+    justify-content: flex-start;
+  }
+
+  .home-headline {
+    font-size: clamp(1.85rem, 7vw, 2.5rem);
+  }
+
+  .home-card {
+    padding: var(--space-4);
+  }
+
+  .home-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tab-btn {
+    font-size: 11px;
+    padding: var(--space-2) var(--space-2);
+  }
+
+  .home-reassurance {
+    align-items: flex-start;
+  }
+}
