@@ -16,3 +16,15 @@ def test_filtering_applies_gitignore_noise_size_and_binary_rules(tmp_path: Path)
     result = collect_text_files(tmp_path, max_file_size_bytes=12)
 
     assert result == {"main.py": "print('ok')"}
+
+
+def test_filtering_handles_non_utf8_and_bom_encodings(tmp_path: Path) -> None:
+    (tmp_path / "latin1.py").write_bytes(b"# caf\xe9\n")
+    (tmp_path / "bom.py").write_bytes(b"\xef\xbb\xbfprint('bom')\n")
+
+    result = collect_text_files(tmp_path, max_file_size_bytes=100)
+
+    assert "latin1.py" in result
+    assert "café" in result["latin1.py"]
+    assert "bom.py" in result
+    assert "print('bom')" in result["bom.py"]

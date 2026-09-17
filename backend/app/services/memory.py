@@ -43,8 +43,12 @@ class ConversationMemory:
         self.max_token_limit = max_token_limit
         self.message_to_token_ids = message_to_token_ids
 
-    async def load_history(self, session_id: UUID) -> str:
+    async def load_history(self, session_id: UUID, current_query: str | None = None) -> str:
         stored_messages = await self.message_store.get_messages(session_id)
+        if current_query is not None and stored_messages:
+            last_msg = stored_messages[-1]
+            if getattr(last_msg, "role", None) == "user" and getattr(last_msg, "content", None) == current_query:
+                stored_messages = stored_messages[:-1]
         chat_history = InMemoryChatMessageHistory(messages=[
             _to_langchain_message(message) for message in stored_messages
         ])

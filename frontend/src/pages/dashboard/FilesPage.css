@@ -175,37 +175,37 @@
 }
 
 .code-viewer-inner {
-  display: table;
+  display: block;
   min-width: 100%;
   padding: var(--space-4) 0;
 }
 
 .code-line {
-  display: table-row;
+  display: flex;
+  align-items: baseline;
+  min-height: 1.5em;
 }
 
 .code-line-number {
-  display: table-cell;
+  flex: 0 0 52px;
+  width: 52px;
   font-family: var(--font-code);
   font-size: var(--text-code);
   color: var(--text-muted);
   text-align: right;
-  padding: 0 var(--space-4) 0 var(--space-4);
+  padding: 0 var(--space-4) 0 var(--space-3);
   user-select: none;
-  vertical-align: top;
-  min-width: 48px;
   opacity: 0.5;
   white-space: nowrap;
 }
 
 .code-line-content {
-  display: table-cell;
+  flex: 1 1 auto;
   font-family: var(--font-code);
   font-size: var(--text-code);
   color: var(--text-primary);
-  padding: 0 var(--space-8) 0 var(--space-4);
+  padding: 0 var(--space-6) 0 var(--space-2);
   white-space: pre;
-  vertical-align: top;
   line-height: 1.6;
 }
 

@@ -1,8 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink, Outlet, useParams } from 'react-router-dom';
-import { LayoutDashboard, Files, MessageSquare, Menu, X } from 'lucide-react';
+import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
+import { LayoutDashboard, Files, MessageSquare, Menu, X, Unlink } from 'lucide-react';
 import './DashboardShell.css';
 import { repositoriesApi, type Repository } from '../../api/repositories';
+import { chatApi } from '../../api/chat';
+import { dashboardCache } from '../../api/cache';
+
+export interface DashboardContextType {
+  repository: Repository | null;
+  setRepository: React.Dispatch<React.SetStateAction<Repository | null>>;
+}
 
 interface NavItemProps {
   to: string;
@@ -36,15 +43,34 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, disabled })
 
 export const DashboardShell: React.FC = () => {
   const { repoId } = useParams<{ repoId: string }>();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [repository, setRepository] = useState<Repository | null>(null);
+  const [repository, setRepository] = useState<Repository | null>(() => repoId ? dashboardCache.getRepository(repoId) : null);
+  const [unlinking, setUnlinking] = useState(false);
+
+  const handleUnlink = async () => {
+    if (!repoId || unlinking) return;
+    setUnlinking(true);
+    try {
+      await chatApi.deleteSessions(repoId);
+    } finally {
+      dashboardCache.clear(repoId);
+      navigate('/', { replace: true });
+    }
+  };
 
   useEffect(() => {
     if (!repoId) return;
     const controller = new AbortController();
     repositoriesApi.monitorUntilReady(repoId, {
       signal: controller.signal,
-      onStatus: setRepository,
+      onStatus: (data) => {
+        setRepository(data);
+        dashboardCache.setRepository(repoId, data);
+      },
+    }).then((readyRepo) => {
+      setRepository(readyRepo);
+      dashboardCache.setRepository(repoId, readyRepo);
     }).catch(() => undefined);
     return () => controller.abort();
   }, [repoId]);
@@ -95,6 +121,20 @@ export const DashboardShell: React.FC = () => {
             onClick={closeSidebar}
           />
         </nav>
+
+        {/* Sidebar Footer — Unlink repository */}
+        <div className="sidebar-footer">
+          <button
+            type="button"
+            className="sidebar-unlink-btn"
+            onClick={handleUnlink}
+            disabled={unlinking}
+            title="Unlink repository"
+          >
+            <Unlink size={15} aria-hidden="true" />
+            <span>{unlinking ? 'Unlinking…' : 'Unlink'}</span>
+          </button>
+        </div>
       </aside>
 
       {/* Content Area */}
@@ -119,7 +159,7 @@ export const DashboardShell: React.FC = () => {
           id="main-content"
           style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
         >
-          <Outlet />
+          <Outlet context={{ repository, setRepository } satisfies DashboardContextType} />
         </main>
       </div>
     </div>

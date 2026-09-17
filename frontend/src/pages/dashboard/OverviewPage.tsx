@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ExternalLink, GitBranch, Globe, User, FileText, FolderOpen, Users, LogOut, Star, GitFork, CircleDot, Check, Circle } from 'lucide-react';
+import { useNavigate, useParams, useOutletContext } from 'react-router-dom';
+import { ExternalLink, GitBranch, Globe, User, FileText, FolderOpen, Users, Unlink, Star, GitFork, CircleDot, Check, Circle } from 'lucide-react';
 import { repositoriesApi, type Repository } from '../../api/repositories';
 import { chatApi } from '../../api/chat';
+import { dashboardCache } from '../../api/cache';
+import type { DashboardContextType } from '../../components/layout/DashboardShell';
 import { ApiError } from '../../api/client';
 import { Spinner, EmptyState, ErrorState } from '../../components/ui/States';
 import './OverviewPage.css';
@@ -67,18 +69,23 @@ type FetchState = 'loading' | 'success' | 'error';
 export const OverviewPage: React.FC = () => {
   const { repoId } = useParams<{ repoId: string }>();
   const navigate = useNavigate();
-  const [fetchState, setFetchState] = useState<FetchState>('loading');
-  const [repo, setRepo] = useState<Repository | null>(null);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [exiting, setExiting] = useState(false);
-  const metadataReadyRef = useRef(false);
+  const outletContext = useOutletContext<DashboardContextType | null>();
 
-  const handleExit = async () => {
-    if (!repoId || exiting) return;
-    setExiting(true);
+  const initialRepo = outletContext?.repository || (repoId ? dashboardCache.getRepository(repoId) : null);
+  const isReady = !!(initialRepo && (initialRepo.metadata_ready || initialRepo.status === 'ready'));
+  const [fetchState, setFetchState] = useState<FetchState>(() => isReady ? 'success' : 'loading');
+  const [repo, setRepo] = useState<Repository | null>(() => initialRepo);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [unlinking, setUnlinking] = useState(false);
+  const metadataReadyRef = useRef(isReady);
+
+  const handleUnlink = async () => {
+    if (!repoId || unlinking) return;
+    setUnlinking(true);
     try {
       await chatApi.deleteSessions(repoId);
     } finally {
+      dashboardCache.clear(repoId);
       navigate('/', { replace: true });
     }
   };
@@ -88,21 +95,43 @@ export const OverviewPage: React.FC = () => {
     let cancelled = false;
     const controller = new AbortController();
 
-    setFetchState('loading');
+    const currentRepo = outletContext?.repository || dashboardCache.getRepository(repoId);
+    if (currentRepo) {
+      setRepo(currentRepo);
+      if (currentRepo.metadata_ready || currentRepo.status === 'ready') {
+        metadataReadyRef.current = true;
+        setFetchState('success');
+      }
+      if (currentRepo.status === 'ready') {
+        return () => controller.abort();
+      }
+    } else {
+      setFetchState('loading');
+    }
+
     repositoriesApi
       .monitorUntilReady(repoId, {
         signal: controller.signal,
         onStatus: (data) => {
           if (cancelled) return;
           setRepo(data);
+          dashboardCache.setRepository(repoId, data);
           if (data.metadata_ready || data.status === 'ready') {
             metadataReadyRef.current = true;
             setFetchState('success');
           }
         },
       })
+      .then((readyData) => {
+        if (cancelled) return;
+        setRepo(readyData);
+        dashboardCache.setRepository(repoId, readyData);
+        metadataReadyRef.current = true;
+        setFetchState('success');
+      })
       .catch((err) => {
         if (!cancelled && err?.name !== 'AbortError') {
+          console.error('[OverviewPage] Repository fetch error:', err);
           if (metadataReadyRef.current) {
             setErrorMsg(err instanceof Error ? err.message : 'Repository ingestion failed.');
             return;
@@ -120,7 +149,7 @@ export const OverviewPage: React.FC = () => {
       cancelled = true;
       controller.abort();
     };
-  }, [repoId]);
+  }, [repoId, outletContext?.repository]);
 
   if (fetchState === 'loading') {
     return (
@@ -152,56 +181,87 @@ export const OverviewPage: React.FC = () => {
 
   return (
     <div className="overview">
-      <div className="overview-toolbar">
-        <button className="overview-exit-button" type="button" onClick={handleExit} disabled={exiting}>
-          <LogOut size={14} aria-hidden="true" />
-          {exiting ? 'Exiting…' : 'Exit'}
-        </button>
-      </div>
-      {/* 1. Repository Identity — strongest visual element */}
-      <section className="overview-identity" aria-label="Repository identity">
-        <h1 className="overview-repo-name">{repo.full_name ?? repo.name}</h1>
-        {repo.description && (
-          <p className="overview-description">{repo.description}</p>
-        )}
-        {repo.status && (
-          <p className={`overview-ingestion-status status-${repo.status}`} role="status">
-            Ingestion: {statusLabel(repo.status)}
-            {repo.error ? ` — ${repo.error}` : ''}
-          </p>
-        )}
-        <div className="overview-links">
-          {repo.url && (
-            <a
-              href={repo.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="overview-link"
-              aria-label={`View ${repo.name} on its source`}
-            >
-              <ExternalLink size={13} aria-hidden="true" />
-              Source
-            </a>
+      {/* 1. Compact Repository Header */}
+      <header className="overview-header" aria-label="Repository header">
+        <div className="overview-header-main">
+          <div className="overview-title-row">
+            <h1 className="overview-repo-name">{repo.full_name ?? repo.name}</h1>
+            {repo.status && (
+              <span className={`overview-status-badge status-${repo.status}`} role="status">
+                <span className="status-badge-dot" aria-hidden="true" />
+                {statusLabel(repo.status)}
+              </span>
+            )}
+          </div>
+          {repo.description && (
+            <p className="overview-description">{repo.description}</p>
           )}
-          {repo.homepage && (
-            <a
-              href={repo.homepage}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="overview-link"
-              aria-label={`Visit ${repo.name} homepage`}
-            >
-              <Globe size={13} aria-hidden="true" />
-              Homepage
-            </a>
-          )}
+          <div className="overview-header-meta">
+            {repo.language && (
+              <span className="overview-meta-item">
+                {langColor && (
+                  <span
+                    className="lang-dot"
+                    style={{ backgroundColor: langColor }}
+                    aria-hidden="true"
+                  />
+                )}
+                {repo.language}
+              </span>
+            )}
+            {repo.branch && (
+              <span className="overview-meta-item">
+                <GitBranch size={13} aria-hidden="true" />
+                {repo.branch}
+              </span>
+            )}
+            {repo.url && (
+              <a
+                href={repo.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="overview-link"
+                aria-label={`View ${repo.name} on source`}
+              >
+                <ExternalLink size={13} aria-hidden="true" />
+                Source
+              </a>
+            )}
+            {repo.homepage && (
+              <a
+                href={repo.homepage}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="overview-link"
+                aria-label={`Visit ${repo.name} homepage`}
+              >
+                <Globe size={13} aria-hidden="true" />
+                Homepage
+              </a>
+            )}
+          </div>
         </div>
-      </section>
 
-      {/* 2. Statistics — compact horizontal row */}
-      <section aria-label="Repository statistics">
-        <p className="overview-section-label">Scale</p>
-        <div className="stats-row" role="list">
+        <div className="overview-header-actions">
+          <button
+            className="overview-unlink-button"
+            type="button"
+            onClick={handleUnlink}
+            disabled={unlinking}
+            title="Unlink repository"
+          >
+            <Unlink size={13} aria-hidden="true" />
+            {unlinking ? 'Unlinking…' : 'Unlink'}
+          </button>
+        </div>
+      </header>
+
+      {/* 2. Repository Scale Metrics — responsive grid utilizing horizontal space */}
+      <section className="overview-section" aria-label="Repository statistics">
+        <div className="overview-section-header">
+          <p className="overview-section-label">Scale</p>
+        </div>
+        <div className="stats-grid" role="list">
           <StatCard
             number={formatNumber(repo.stats.files)}
             label="Files"
@@ -217,166 +277,49 @@ export const OverviewPage: React.FC = () => {
             label="Contributors"
             icon={<Users size={14} aria-hidden="true" />}
           />
-          <StatCard number={formatNumber(repo.stats.stars)} label="Stars" icon={<Star size={14} aria-hidden="true" />} />
-          <StatCard number={formatNumber(repo.stats.forks)} label="Forks" icon={<GitFork size={14} aria-hidden="true" />} />
-          <StatCard number={formatNumber(repo.stats.open_issues)} label="Open issues" icon={<CircleDot size={14} aria-hidden="true" />} />
+          <StatCard
+            number={formatNumber(repo.stats.stars)}
+            label="Stars"
+            icon={<Star size={14} aria-hidden="true" />}
+          />
+          <StatCard
+            number={formatNumber(repo.stats.forks)}
+            label="Forks"
+            icon={<GitFork size={14} aria-hidden="true" />}
+          />
+          <StatCard
+            number={formatNumber(repo.stats.open_issues)}
+            label="Issues"
+            icon={<CircleDot size={14} aria-hidden="true" />}
+          />
           {repo.stats.open_pull_requests !== undefined && (
-            <StatCard number={formatNumber(repo.stats.open_pull_requests)} label="Open PRs" />
+            <StatCard
+              number={formatNumber(repo.stats.open_pull_requests)}
+              label="Pull Requests"
+            />
           )}
           {repo.stats.size_kb !== undefined && (
             <StatCard
               number={repo.stats.size_kb >= 1024
                 ? `${(repo.stats.size_kb / 1024).toFixed(1)} MB`
                 : `${repo.stats.size_kb} KB`}
-              label="Size"
+              label="Disk Size"
             />
           )}
         </div>
       </section>
 
-      {/* 3. Metadata — label/value pairs, no card wrapper */}
-      <section aria-label="Repository metadata">
-        <p className="overview-section-label">Details</p>
-        <dl className="metadata-list">
-          {repo.owner && (
-            <>
-              <dt className="metadata-label">
-                <User size={12} aria-hidden="true" style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                Owner
-              </dt>
-              <dd className="metadata-value">{repo.owner}</dd>
-            </>
-          )}
-          {repo.branch && (
-            <>
-              <dt className="metadata-label">
-                <GitBranch size={12} aria-hidden="true" style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                Branch
-              </dt>
-              <dd className="metadata-value">{repo.branch}</dd>
-            </>
-          )}
-          {repo.language && (
-            <>
-              <dt className="metadata-label">Language</dt>
-              <dd className="metadata-value" style={{ display: 'flex', alignItems: 'center' }}>
-                {langColor && (
-                  <span
-                    className="lang-dot"
-                    style={{ backgroundColor: langColor }}
-                    aria-hidden="true"
-                  />
-                )}
-                {repo.language}
-              </dd>
-            </>
-          )}
-          {repo.url && (
-            <>
-              <dt className="metadata-label">URL</dt>
-              <dd className="metadata-value">
-                <a href={repo.url} target="_blank" rel="noopener noreferrer">
-                  {repo.url}
-                </a>
-              </dd>
-            </>
-          )}
-          {repositoryMetadata.visibility && (
-            <>
-              <dt className="metadata-label">Visibility</dt>
-              <dd className="metadata-value">{repositoryMetadata.visibility}</dd>
-            </>
-          )}
-          {formatDate(repositoryMetadata.github_created_at) && (
-            <>
-              <dt className="metadata-label">Created</dt>
-              <dd className="metadata-value">{formatDate(repositoryMetadata.github_created_at)}</dd>
-            </>
-          )}
-          {formatDate(repositoryMetadata.pushed_at || repositoryMetadata.github_updated_at) && (
-            <>
-              <dt className="metadata-label">Last pushed</dt>
-              <dd className="metadata-value">{formatDate(repositoryMetadata.pushed_at || repositoryMetadata.github_updated_at)}</dd>
-            </>
-          )}
-          {repositoryMetadata.license_name && (
-            <>
-              <dt className="metadata-label">License</dt>
-              <dd className="metadata-value">{repositoryMetadata.license_name}</dd>
-            </>
-          )}
-        </dl>
-      </section>
-
-      <div className="overview-info-grid">
-        <section aria-label="Languages">
-          <p className="overview-section-label">Languages</p>
-          {languages.length > 0 ? (
-            <div className="language-list">
-              {languages.map(([language, percentage]) => (
-                <div className="language-row" key={language}>
-                  <span className="language-name"><span className="lang-dot" style={{ backgroundColor: LANG_COLORS[language] ?? LANG_COLORS.Other }} aria-hidden="true" />{language}</span>
-                  <span className="language-percentage">{percentage}%</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="overview-muted">Language breakdown unavailable.</p>
-          )}
-        </section>
-
-        <section aria-label="Topics">
-          <p className="overview-section-label">Topics</p>
-          {repositoryMetadata.topics && repositoryMetadata.topics.length > 0 ? (
-            <div className="topic-empty">
-              {repositoryMetadata.topics.map((topic) => <span className="topic-chip" key={topic}>{topic}</span>)}
-            </div>
-          ) : (
-            <p className="overview-muted">No repository topics provided.</p>
-          )}
-        </section>
-      </div>
-
-      {/* 4. Contributors — lowest visual priority */}
-      <section aria-label="Contributors">
-        <p className="overview-section-label">Contributors</p>
-        {visibleContributors.length > 0 ? (
-          <ul className="contributors-list" role="list">
-            {visibleContributors.map((c) => (
-              <li key={c.username} className="contributor-row" role="listitem">
-                <div className="contributor-avatar">
-                  {c.avatar_url ? (
-                    <img
-                      src={c.avatar_url}
-                      alt={`${c.username}'s avatar`}
-                    />
-                  ) : (
-                    <span aria-hidden="true">{initials(c.username)}</span>
-                  )}
-                </div>
-                <div className="contributor-info">
-                  <p className="contributor-name">{c.username}</p>
-                  {c.commits !== undefined && (
-                    <p className="contributor-commits">
-                      {c.commits} {c.commits === 1 ? 'commit' : 'commits'}
-                    </p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="contributors-empty">Contributor data is unavailable for this repository.</p>
-        )}
-        {contributors.length > visibleContributors.length && (
-          <p className="contributors-more">
-            Showing the top {visibleContributors.length} of {contributors.length} contributors.
-          </p>
-        )}
-      </section>
-
+      {/* 3. CodeAtlas Processing / Status — placed directly below stats for immediate readiness visibility */}
       <section aria-label="CodeAtlas processing" className="processing-section">
-        <p className="overview-section-label">CodeAtlas Processing</p>
+        <div className="processing-header">
+          <p className="overview-section-label">CodeAtlas Processing Status</p>
+          {(formatDuration(repo.processing?.duration_ms) || formatDate(repo.processing?.last_indexed_at)) && (
+            <span className="processing-meta">
+              {formatDuration(repo.processing?.duration_ms) ? `Indexed in ${formatDuration(repo.processing?.duration_ms)}` : ''}
+              {formatDate(repo.processing?.last_indexed_at) ? ` · Last indexed ${formatDate(repo.processing?.last_indexed_at)}` : ''}
+            </span>
+          )}
+        </div>
         <div className="processing-grid">
           {[
             ['metadata', 'Metadata extracted'],
@@ -400,22 +343,183 @@ export const OverviewPage: React.FC = () => {
                 aria-label={`${label}${complete ? ', complete' : active ? ', in progress' : ', pending'}`}
               >
                 <span className={`processing-icon ${complete ? 'processing-complete' : ''}`} aria-hidden="true">
-                  {complete ? <Check size={14} /> : active ? <Spinner size={20} /> : <Circle size={12} />}
+                  {complete ? <Check size={14} /> : active ? <Spinner size={16} /> : <Circle size={10} />}
                 </span>
-                <span className="processing-label">{label}</span>
-                {stage === 'chunks' && repo.processing?.chunks_created !== undefined && <span className="processing-count">· {formatNumber(repo.processing.chunks_created)}</span>}
-                {stage === 'embeddings' && repo.processing?.embeddings_generated !== undefined && <span className="processing-count">· {formatNumber(repo.processing.embeddings_generated)}</span>}
+                <div className="processing-step-info">
+                  <span className="processing-label">{label}</span>
+                  {stage === 'chunks' && repo.processing?.chunks_created !== undefined && (
+                    <span className="processing-count">{formatNumber(repo.processing.chunks_created)} chunks</span>
+                  )}
+                  {stage === 'embeddings' && repo.processing?.embeddings_generated !== undefined && (
+                    <span className="processing-count">{formatNumber(repo.processing.embeddings_generated)} vectors</span>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
-        {(formatDuration(repo.processing?.duration_ms) || formatDate(repo.processing?.last_indexed_at)) && (
-          <p className="processing-meta">
-            {formatDuration(repo.processing?.duration_ms) ? `Indexed in ${formatDuration(repo.processing?.duration_ms)}` : ''}
-            {formatDate(repo.processing?.last_indexed_at) ? ` · Last indexed ${formatDate(repo.processing?.last_indexed_at)}` : ''}
-          </p>
-        )}
       </section>
+
+      {/* 4. Balanced Two-Column Section: Details & Technical Info (Left) | Languages, Topics & Contributors (Right) */}
+      <div className="overview-main-grid">
+        {/* Left Column: Repository Details */}
+        <section className="overview-card" aria-label="Repository details">
+          <p className="overview-section-label">Details</p>
+          <dl className="metadata-list">
+            {repo.owner && (
+              <div className="metadata-row">
+                <dt className="metadata-label">
+                  <User size={13} aria-hidden="true" />
+                  Owner
+                </dt>
+                <dd className="metadata-value">{repo.owner}</dd>
+              </div>
+            )}
+            {repo.branch && (
+              <div className="metadata-row">
+                <dt className="metadata-label">
+                  <GitBranch size={13} aria-hidden="true" />
+                  Default Branch
+                </dt>
+                <dd className="metadata-value">{repo.branch}</dd>
+              </div>
+            )}
+            {repo.language && (
+              <div className="metadata-row">
+                <dt className="metadata-label">Primary Language</dt>
+                <dd className="metadata-value" style={{ display: 'flex', alignItems: 'center' }}>
+                  {langColor && (
+                    <span
+                      className="lang-dot"
+                      style={{ backgroundColor: langColor }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  {repo.language}
+                </dd>
+              </div>
+            )}
+            {repo.url && (
+              <div className="metadata-row">
+                <dt className="metadata-label">Repository URL</dt>
+                <dd className="metadata-value">
+                  <a href={repo.url} target="_blank" rel="noopener noreferrer">
+                    {repo.url}
+                  </a>
+                </dd>
+              </div>
+            )}
+            {repositoryMetadata.visibility && (
+              <div className="metadata-row">
+                <dt className="metadata-label">Visibility</dt>
+                <dd className="metadata-value capitalize">{repositoryMetadata.visibility}</dd>
+              </div>
+            )}
+            {formatDate(repositoryMetadata.github_created_at) && (
+              <div className="metadata-row">
+                <dt className="metadata-label">Created</dt>
+                <dd className="metadata-value">{formatDate(repositoryMetadata.github_created_at)}</dd>
+              </div>
+            )}
+            {formatDate(repositoryMetadata.pushed_at || repositoryMetadata.github_updated_at) && (
+              <div className="metadata-row">
+                <dt className="metadata-label">Last Pushed</dt>
+                <dd className="metadata-value">{formatDate(repositoryMetadata.pushed_at || repositoryMetadata.github_updated_at)}</dd>
+              </div>
+            )}
+            {repositoryMetadata.license_name && (
+              <div className="metadata-row">
+                <dt className="metadata-label">License</dt>
+                <dd className="metadata-value">{repositoryMetadata.license_name}</dd>
+              </div>
+            )}
+          </dl>
+        </section>
+
+        {/* Right Column: Stack & Contributors */}
+        <div className="overview-side-col">
+          {/* Languages & Topics Card */}
+          <section className="overview-card" aria-label="Languages and topics">
+            <div className="side-card-section">
+              <p className="overview-section-label">Languages</p>
+              {languages.length > 0 ? (
+                <div className="language-list">
+                  {languages.map(([language, percentage]) => (
+                    <div className="language-row" key={language}>
+                      <span className="language-name">
+                        <span
+                          className="lang-dot"
+                          style={{ backgroundColor: LANG_COLORS[language] ?? LANG_COLORS.Other }}
+                          aria-hidden="true"
+                        />
+                        {language}
+                      </span>
+                      <span className="language-percentage">{percentage}%</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="overview-muted">Language breakdown unavailable.</p>
+              )}
+            </div>
+
+            <div className="side-card-divider" />
+
+            <div className="side-card-section">
+              <p className="overview-section-label">Topics</p>
+              {repositoryMetadata.topics && repositoryMetadata.topics.length > 0 ? (
+                <div className="topic-list">
+                  {repositoryMetadata.topics.map((topic) => (
+                    <span className="topic-chip" key={topic}>{topic}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="overview-muted">No repository topics provided.</p>
+              )}
+            </div>
+          </section>
+
+          {/* Compact Contributors Card */}
+          <section className="overview-card" aria-label="Contributors">
+            <div className="contributors-card-header">
+              <p className="overview-section-label">Contributors</p>
+              {contributors.length > 0 && (
+                <span className="contributors-count-badge">
+                  {contributors.length} total
+                </span>
+              )}
+            </div>
+            {visibleContributors.length > 0 ? (
+              <ul className="contributors-compact-list" role="list">
+                {visibleContributors.map((c) => (
+                  <li key={c.username} className="contributor-compact-item" role="listitem">
+                    <div className="contributor-avatar">
+                      {c.avatar_url ? (
+                        <img
+                          src={c.avatar_url}
+                          alt={`${c.username}'s avatar`}
+                        />
+                      ) : (
+                        <span aria-hidden="true">{initials(c.username)}</span>
+                      )}
+                    </div>
+                    <div className="contributor-compact-info">
+                      <span className="contributor-name">{c.username}</span>
+                      {c.commits !== undefined && (
+                        <span className="contributor-commits">
+                          {c.commits} {c.commits === 1 ? 'commit' : 'commits'}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="overview-muted">Contributor data is unavailable for this repository.</p>
+            )}
+          </section>
+        </div>
+      </div>
     </div>
   );
 };

@@ -28,21 +28,21 @@ class SupabasePersistence:
             "Authorization": f"Bearer {settings.supabase_service_role_key}",
             "Content-Type": "application/json",
         }
-        self._client = client
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(timeout=30.0)
+
+    async def aclose(self) -> None:
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=30.0)
         try:
             request_headers = {**self.headers, **kwargs.pop("headers", {})}
-            response = await client.request(method, f"{self.base_url}/{path}", headers=request_headers, **kwargs)
+            response = await self._client.request(method, f"{self.base_url}/{path}", headers=request_headers, **kwargs)
             response.raise_for_status()
             return response.json() if response.content else None
         except (httpx.HTTPError, ValueError) as exc:
             raise PersistenceError(f"Supabase {method} {path} failed: {exc}") from exc
-        finally:
-            if owns_client:
-                await client.aclose()
 
     async def upsert_repository(self, repository: Repository) -> None:
         payload = {

@@ -102,10 +102,12 @@ class InMemoryStore:
             return repository, True
 
     async def get_repository(self, repository_id: UUID) -> Repository | None:
-        return self.repositories.get(repository_id)
+        async with self._lock:
+            return self.repositories.get(repository_id)
 
     async def list_repositories(self) -> list[Repository]:
-        return list(self.repositories.values())
+        async with self._lock:
+            return list(self.repositories.values())
 
     async def hydrate_repositories(self) -> list[Repository]:
         if self.persistence is None:
@@ -116,46 +118,56 @@ class InMemoryStore:
         return repositories
 
     async def save_file(self, repository_id: UUID, path: str, content: str) -> None:
-        self.repository_files[repository_id][path] = content
+        async with self._lock:
+            self.repository_files[repository_id][path] = content
         if self.persistence is not None:
             await self.persistence.upsert_file(repository_id, path, content)
 
     async def get_files(self, repository_id: UUID) -> dict[str, str]:
         if self.persistence is not None:
             return await self.persistence.get_files(repository_id)
-        return self.repository_files.get(repository_id, {})
+        async with self._lock:
+            return dict(self.repository_files.get(repository_id, {}))
 
     async def save_documents(self, repository_id: UUID, documents: list[Document]) -> None:
-        self.repository_documents[repository_id] = documents
+        async with self._lock:
+            self.repository_documents[repository_id] = list(documents)
 
     async def get_chunks_by_hash(self, repository_id: UUID, hashes: list[str]) -> dict[str, ChunkRecord]:
         if self.persistence is not None:
             return await self.persistence.get_chunks_by_hash(repository_id, hashes)
-        return {chunk_hash: self.chunks[repository_id][chunk_hash] for chunk_hash in hashes if chunk_hash in self.chunks[repository_id]}
+        async with self._lock:
+            chunks = self.chunks[repository_id]
+            return {chunk_hash: chunks[chunk_hash] for chunk_hash in hashes if chunk_hash in chunks}
 
     async def upsert_chunks(self, repository_id: UUID, records: list[ChunkRecord]) -> None:
         if self.persistence is not None:
             await self.persistence.upsert_chunks(repository_id, records)
-        self.chunks[repository_id].update({record.content_hash: record for record in records})
+        async with self._lock:
+            self.chunks[repository_id].update({record.content_hash: record for record in records})
 
     async def delete_stale_chunks(self, repository_id: UUID, current_hashes: set[str]) -> None:
         if self.persistence is not None:
             await self.persistence.delete_stale_chunks(repository_id, current_hashes)
-        self.chunks[repository_id] = {key: value for key, value in self.chunks[repository_id].items() if key in current_hashes}
+        async with self._lock:
+            self.chunks[repository_id] = {key: value for key, value in self.chunks[repository_id].items() if key in current_hashes}
 
     async def log_event(self, repository_id: UUID | None, stage: str, level: str, message: str, metadata: dict[str, object] | None = None, latency_ms: float | None = None) -> None:
         safe_message = redact_sensitive(message)
         safe_metadata = redact_sensitive(metadata or {})
         event = {"repository_id": repository_id, "stage": stage, "level": level, "message": safe_message, "metadata": safe_metadata, "latency_ms": latency_ms}
-        self.logs.append(event)
+        async with self._lock:
+            self.logs.append(event)
         if self.persistence is not None:
             await self.persistence.log_event(repository_id, stage, level, safe_message, safe_metadata, latency_ms)
 
     async def get_semantic_cache(self, repo_id: UUID, query_embedding: list[float], threshold: float) -> dict[str, object] | None:
         if self.persistence is not None:
             return await self.persistence.get_semantic_cache(repo_id, query_embedding, threshold)
+        async with self._lock:
+            cache_items = list(self.semantic_cache[repo_id])
         best: tuple[float, dict[str, object]] | None = None
-        for item in self.semantic_cache[repo_id]:
+        for item in cache_items:
             similarity = _cosine_similarity(query_embedding, item["query_embedding"])
             if similarity >= threshold and (best is None or similarity > best[0]):
                 best = (similarity, item["response"])
@@ -164,13 +176,16 @@ class InMemoryStore:
     async def save_semantic_cache(self, repo_id: UUID, query: str, query_embedding: list[float], response: dict[str, object]) -> None:
         if self.persistence is not None:
             await self.persistence.save_semantic_cache(repo_id, query, query_embedding, response)
-        self.semantic_cache[repo_id].append({"query": query, "query_embedding": query_embedding, "response": response})
+        async with self._lock:
+            self.semantic_cache[repo_id].append({"query": query, "query_embedding": query_embedding, "response": response})
 
     async def dense_search(self, repo_id: UUID, query_embedding: list[float], limit: int) -> list[dict[str, object]]:
         if self.persistence is not None:
             return await self.persistence.dense_search(repo_id, query_embedding, limit)
+        async with self._lock:
+            records = list(self.chunks[repo_id].values())
         rows = []
-        for record in self.chunks[repo_id].values():
+        for record in records:
             similarity = _cosine_similarity(query_embedding, record.embedding)
             rows.append(_record_row(record, similarity=similarity))
         return sorted(rows, key=lambda row: (-row["similarity"], str(row["id"])))[:min(limit, 20)]
@@ -178,9 +193,11 @@ class InMemoryStore:
     async def sparse_search(self, repo_id: UUID, query: str, limit: int) -> list[dict[str, object]]:
         if self.persistence is not None:
             return await self.persistence.sparse_search(repo_id, query, limit)
+        async with self._lock:
+            records = list(self.chunks[repo_id].values())
         terms = set(re.findall(r"[A-Za-z0-9_]+", query.lower()))
         rows = []
-        for record in self.chunks[repo_id].values():
+        for record in records:
             metadata = record.metadata
             symbol = str(metadata.get("symbol") or "")
             haystack = f"{record.content} {symbol}".lower()
@@ -194,51 +211,62 @@ class InMemoryStore:
     async def list_evaluation_chunks(self, repo_id: UUID) -> list[dict[str, object]]:
         if self.persistence is not None:
             return await self.persistence.list_evaluation_chunks(repo_id)
-        return [{"content_hash": record.content_hash, "content": record.content, "embedding": record.embedding, **record.metadata} for record in self.chunks[repo_id].values()]
+        async with self._lock:
+            records = list(self.chunks[repo_id].values())
+        return [{"content_hash": record.content_hash, "content": record.content, "embedding": record.embedding, **record.metadata} for record in records]
 
     async def claim_evaluation(self, repo_id: UUID, eval_version: str) -> bool:
         if self.persistence is not None:
             return await self.persistence.claim_evaluation(repo_id, eval_version)
         key = (repo_id, eval_version)
-        if key in self.evaluation_runs and self.evaluation_results.get(key, {}).get("status") != "failed":
-            return False
-        self.evaluation_runs.add(key)
-        self.evaluation_results[key] = {"status": "running"}
-        return True
+        async with self._lock:
+            if key in self.evaluation_runs and self.evaluation_results.get(key, {}).get("status") != "failed":
+                return False
+            self.evaluation_runs.add(key)
+            self.evaluation_results[key] = {"status": "running"}
+            return True
 
     async def save_golden_examples(self, repo_id: UUID, eval_version: str, examples: list[object]) -> None:
         if self.persistence is not None:
             await self.persistence.save_golden_examples(repo_id, eval_version, examples)
-        self.evaluation_golden[(repo_id, eval_version)] = examples
+        async with self._lock:
+            self.evaluation_golden[(repo_id, eval_version)] = list(examples)
 
     async def finish_evaluation(self, repo_id: UUID, eval_version: str, payload: dict[str, object]) -> None:
         if self.persistence is not None:
             await self.persistence.finish_evaluation(repo_id, eval_version, payload)
-        self.evaluation_results[(repo_id, eval_version)] = payload
+        async with self._lock:
+            self.evaluation_results[(repo_id, eval_version)] = dict(payload)
 
     async def save_session(self, session: ChatSession) -> ChatSession:
-        self.sessions[session.id] = session
+        async with self._lock:
+            self.sessions[session.id] = session
         if self.persistence is not None:
             await self.persistence.save_session(session)
         return session
 
     async def get_session(self, session_id: UUID) -> ChatSession | None:
-        session = self.sessions.get(session_id)
+        async with self._lock:
+            session = self.sessions.get(session_id)
         if session is None and self.persistence is not None:
             session = await self.persistence.get_session(session_id)
             if session is not None:
-                self.sessions[session.id] = session
+                async with self._lock:
+                    self.sessions[session.id] = session
         return session
 
     async def get_sessions(self, repository_id: UUID) -> list[ChatSession]:
         if self.persistence is not None:
             sessions = await self.persistence.get_sessions(repository_id)
-            self.sessions.update({session.id: session for session in sessions})
+            async with self._lock:
+                self.sessions.update({session.id: session for session in sessions})
             return sessions
-        return [session for session in self.sessions.values() if session.repository_id == repository_id]
+        async with self._lock:
+            return [session for session in self.sessions.values() if session.repository_id == repository_id]
 
     async def add_message(self, message: ChatMessage, session_id: UUID) -> ChatMessage:
-        self.messages[session_id].append(message)
+        async with self._lock:
+            self.messages[session_id].append(message)
         if self.persistence is not None:
             await self.persistence.save_message(session_id, message)
         return message
@@ -246,15 +274,18 @@ class InMemoryStore:
     async def get_messages(self, session_id: UUID) -> list[ChatMessage]:
         if self.persistence is not None:
             messages = await self.persistence.get_messages(session_id)
-            self.messages[session_id] = messages
+            async with self._lock:
+                self.messages[session_id] = messages
             return messages
-        return self.messages.get(session_id, [])
+        async with self._lock:
+            return list(self.messages.get(session_id, []))
 
     async def delete_sessions(self, repository_id: UUID) -> None:
-        session_ids = [session.id for session in self.sessions.values() if session.repository_id == repository_id]
-        for session_id in session_ids:
-            self.sessions.pop(session_id, None)
-            self.messages.pop(session_id, None)
+        async with self._lock:
+            session_ids = [session.id for session in self.sessions.values() if session.repository_id == repository_id]
+            for session_id in session_ids:
+                self.sessions.pop(session_id, None)
+                self.messages.pop(session_id, None)
         if self.persistence is not None:
             await self.persistence.delete_sessions(repository_id)
 

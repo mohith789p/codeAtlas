@@ -12,6 +12,13 @@ from ..config import Settings
 from ..logging_utils import redact_sensitive_text
 
 
+from tenacity import AsyncRetrying, RetryError, retry_if_exception_type, stop_after_attempt
+
+
+class _RetryableRateLimitError(Exception):
+    """Internal sentinel for tenacity retrying on rate-limited responses."""
+
+
 class EmbeddingProviderError(RuntimeError):
     """A provider failure that should fail the current ingestion job."""
 
@@ -59,7 +66,8 @@ class GeminiEmbeddingService:
         random_fn: Any = random.random,
     ) -> None:
         self.settings = settings
-        self._client = client
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(timeout=self.settings.embedding_timeout_seconds)
         self._clock = clock
         self._sleep = sleep
         self._random = random_fn
@@ -67,22 +75,20 @@ class GeminiEmbeddingService:
         self.retry_count = 0
         self.rate_limit_count = 0
 
+    async def aclose(self) -> None:
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
+
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
         if not self.settings.gemini_api_key:
             raise EmbeddingProviderError("GEMINI_API_KEY is not configured.")
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=self.settings.embedding_timeout_seconds)
-        try:
-            vectors: list[list[float]] = []
-            for start in range(0, len(texts), self.settings.embedding_batch_size):
-                batch = texts[start:start + self.settings.embedding_batch_size]
-                vectors.extend(await self._embed_batch(client, batch))
-            return vectors
-        finally:
-            if owns_client:
-                await client.aclose()
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), self.settings.embedding_batch_size):
+            batch = texts[start:start + self.settings.embedding_batch_size]
+            vectors.extend(await self._embed_batch(self._client, batch))
+        return vectors
 
     async def _embed_batch(self, client: httpx.AsyncClient, texts: Sequence[str]) -> list[list[float]]:
         model = f"models/{self.settings.gemini_embedding_model}"
@@ -97,36 +103,45 @@ class GeminiEmbeddingService:
             ]
         }
         url = f"{self.settings.gemini_api_url}/models/{self.settings.gemini_embedding_model}:batchEmbedContents"
-        for attempt in range(self.settings.gemini_embedding_max_retries + 1):
-            await self._wait_for_rate_limit()
-            self.request_count += 1
-            try:
-                response = await client.post(url, params={"key": self.settings.gemini_api_key}, json=payload)
-                if response.status_code == 429:
-                    self.rate_limit_count += 1
-                    if attempt >= self.settings.gemini_embedding_max_retries:
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(self.settings.gemini_embedding_max_retries + 1),
+                retry=retry_if_exception_type(_RetryableRateLimitError),
+                reraise=True,
+            ):
+                with attempt:
+                    attempt_index = attempt.retry_state.attempt_number - 1
+                    await self._wait_for_rate_limit()
+                    self.request_count += 1
+                    try:
+                        response = await client.post(url, params={"key": self.settings.gemini_api_key}, json=payload)
+                        if response.status_code == 429:
+                            self.rate_limit_count += 1
+                            if attempt_index >= self.settings.gemini_embedding_max_retries:
+                                response.raise_for_status()
+                            self.retry_count += 1
+                            await self._wait_after_rate_limit(response, attempt_index)
+                            raise _RetryableRateLimitError()
                         response.raise_for_status()
-                    self.retry_count += 1
-                    await self._wait_after_rate_limit(response, attempt)
-                    continue
-                response.raise_for_status()
-                body: dict[str, Any] = response.json()
-                embeddings = body.get("embeddings")
-                if not isinstance(embeddings, list) or len(embeddings) != len(texts):
-                    raise EmbeddingProviderError("Gemini returned an unexpected embedding response.")
-                vectors = [item.get("values") for item in embeddings]
-                if any(not isinstance(vector, list) or not vector for vector in vectors):
-                    raise EmbeddingProviderError("Gemini returned an empty embedding vector.")
-                if any(len(vector) != self.settings.embedding_dimensions for vector in vectors):
-                    dimensions = sorted({len(vector) for vector in vectors})
-                    raise EmbeddingProviderError(
-                        f"Gemini returned dimensions {dimensions}; expected {self.settings.embedding_dimensions}."
-                    )
-                return vectors
-            except EmbeddingProviderError:
-                raise
-            except (httpx.HTTPError, ValueError) as exc:
-                raise EmbeddingProviderError(redact_sensitive_text(f"Gemini embedding request failed: {exc}")) from None
+                        body: dict[str, Any] = response.json()
+                        embeddings = body.get("embeddings")
+                        if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+                            raise EmbeddingProviderError("Gemini returned an unexpected embedding response.")
+                        vectors = [item.get("values") for item in embeddings]
+                        if any(not isinstance(vector, list) or not vector for vector in vectors):
+                            raise EmbeddingProviderError("Gemini returned an empty embedding vector.")
+                        if any(len(vector) != self.settings.embedding_dimensions for vector in vectors):
+                            dimensions = sorted({len(vector) for vector in vectors})
+                            raise EmbeddingProviderError(
+                                f"Gemini returned dimensions {dimensions}; expected {self.settings.embedding_dimensions}."
+                            )
+                        return vectors
+                    except (_RetryableRateLimitError, EmbeddingProviderError):
+                        raise
+                    except (httpx.HTTPError, ValueError) as exc:
+                        raise EmbeddingProviderError(redact_sensitive_text(f"Gemini embedding request failed: {exc}")) from None
+        except RetryError:
+            raise EmbeddingProviderError("Gemini embedding retries exhausted.") from None
         raise EmbeddingProviderError("Gemini embedding retries exhausted.")
 
     async def _wait_for_rate_limit(self) -> None:

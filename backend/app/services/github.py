@@ -144,12 +144,13 @@ async def inspect_repository(url: str, settings: Settings) -> GitHubRepository:
     )
 
 
-async def download_and_extract(repository: GitHubRepository, branch: str | None, settings: Settings) -> Path:
+async def download_and_extract(repository: GitHubRepository, branch: str | None, settings: Settings, target_dir: Path | None = None) -> Path:
     selected_branch = branch or repository.default_branch
     archive_url = f"https://codeload.github.com/{repository.owner}/{repository.name}/zip/refs/heads/{selected_branch}"
-    archive_path = Path.cwd() / ".codeatlas-downloads" / f"{repository.owner}-{repository.name}.zip"
-    extract_path = archive_path.with_suffix("")
-    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    base_dir = target_dir or (Path.cwd() / ".codeatlas-downloads")
+    archive_path = base_dir / f"{repository.owner}-{repository.name}.zip"
+    extract_path = base_dir / f"{repository.owner}-{repository.name}"
+    base_dir.mkdir(parents=True, exist_ok=True)
     timeout = httpx.Timeout(settings.download_read_timeout_seconds, connect=settings.download_connect_timeout_seconds)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         async with client.stream("GET", archive_url) as response:
@@ -160,6 +161,11 @@ async def download_and_extract(repository: GitHubRepository, branch: str | None,
     extract_path.mkdir(parents=True, exist_ok=True)
     try:
         with ZipFile(archive_path) as archive:
+            resolved_extract_path = extract_path.resolve()
+            for member in archive.infolist():
+                member_target = (extract_path / member.filename).resolve()
+                if not str(member_target).startswith(str(resolved_extract_path)):
+                    raise GitHubRepositoryError(f"Unsafe zip archive entry detected: {member.filename}")
             archive.extractall(extract_path)
     except BadZipFile as exc:
         raise GitHubRepositoryError("GitHub returned an invalid repository archive.") from exc

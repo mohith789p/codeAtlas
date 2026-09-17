@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { Bot, Send, MessageSquare, ArrowRight, FileCode } from 'lucide-react';
 import { chatApi, type ChatMessage, type Citation } from '../../api/chat';
 import { repositoriesApi, type Repository } from '../../api/repositories';
+import { dashboardCache } from '../../api/cache';
+import type { DashboardContextType } from '../../components/layout/DashboardShell';
 import { ApiError } from '../../api/client';
 import { Spinner } from '../../components/ui/States';
 import './ChatPage.css';
@@ -106,7 +108,7 @@ const MessageBubble: React.FC<MessageProps> = ({ message, onCitationNavigate }) 
   return (
     <div
       className="message-row message-row-assistant"
-      aria-label={`CodeAtlas: ${message.content}`}
+      aria-label={`CodeAtlas: ${message.content || 'Thinking…'}`}
     >
       {/* AI identity marker — violet icon + label */}
       <div className="message-identity">
@@ -119,9 +121,22 @@ const MessageBubble: React.FC<MessageProps> = ({ message, onCitationNavigate }) 
       {/* Response body — neutral text, NOT violet */}
       <div className="message-bubble-assistant" role="article">
         <div className="message-markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {stripCitationMetadata(message.content, message.citations ?? [])}
-        </ReactMarkdown>
+          {message.content ? (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {stripCitationMetadata(message.content, message.citations ?? [])}
+            </ReactMarkdown>
+          ) : (
+            <div className="message-loading" role="status" aria-label="CodeAtlas is thinking…">
+              <div className="typing-dots" aria-hidden="true">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </div>
+              <span style={{ fontSize: 'var(--text-meta)', color: 'var(--text-muted)' }}>
+                Thinking…
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -144,76 +159,100 @@ const MessageBubble: React.FC<MessageProps> = ({ message, onCitationNavigate }) 
   );
 };
 
-// ─── Typing indicator ─────────────────────────────────────────────────────────
-
-const TypingIndicator: React.FC = () => (
-  <div className="message-row message-row-assistant">
-    <div className="message-identity">
-      <span className="message-identity-icon" aria-hidden="true">
-        <Bot size={14} />
-      </span>
-      <span className="message-identity-label">CodeAtlas</span>
-    </div>
-    <div className="message-loading" role="status" aria-label="CodeAtlas is thinking…">
-      <div className="typing-dots" aria-hidden="true">
-        <span className="typing-dot" />
-        <span className="typing-dot" />
-        <span className="typing-dot" />
-      </div>
-      <span style={{ fontSize: 'var(--text-meta)', color: 'var(--text-muted)' }}>
-        Thinking…
-      </span>
-    </div>
-  </div>
-);
-
 // ─── Chat Page ────────────────────────────────────────────────────────────────
 
 export const ChatPage: React.FC = () => {
   const { repoId } = useParams<{ repoId: string }>();
   const navigate = useNavigate();
+  const outletContext = useOutletContext<DashboardContextType | null>();
 
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const initialRepo = outletContext?.repository || (repoId ? dashboardCache.getRepository(repoId) : null);
+  const [repository, setRepository] = useState<Repository | null>(() => initialRepo);
+  const [sessionId, setSessionId] = useState<string | null>(() => repoId ? dashboardCache.getSessionId(repoId) : null);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => repoId ? (dashboardCache.getMessages(repoId) ?? []) : []);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
-  const [repository, setRepository] = useState<Repository | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  useEffect(() => {
+    if (outletContext?.repository) {
+      setRepository(outletContext.repository);
+      if (repoId) dashboardCache.setRepository(repoId, outletContext.repository);
+    }
+  }, [outletContext?.repository, repoId]);
+
   // Initialise session on mount
   useEffect(() => {
     if (!repoId) return;
+    if (dashboardCache.getSessionId(repoId) && dashboardCache.getMessages(repoId)) {
+      return;
+    }
+
     let cancelled = false;
     const controller = new AbortController();
+
+    const initChat = () => {
+      chatApi
+        .getSessions(repoId, { signal: controller.signal })
+        .then((sessions) => {
+          if (cancelled) return;
+          if (sessions.length > 0) {
+            const session = sessions[sessions.length - 1];
+            setSessionId(session.id);
+            dashboardCache.setSessionId(repoId, session.id);
+            return chatApi.getMessages(session.id, { signal: controller.signal });
+          } else {
+            return chatApi.createSession(repoId, { signal: controller.signal }).then((s) => {
+              setSessionId(s.id);
+              dashboardCache.setSessionId(repoId, s.id);
+              return [] as ChatMessage[];
+            });
+          }
+        })
+        .then((msgs) => {
+          if (cancelled) return;
+          if (msgs) {
+            setMessages(msgs);
+            dashboardCache.setMessages(repoId, msgs);
+          }
+        })
+        .catch((err) => {
+          if (cancelled || err?.name === 'AbortError') return;
+          console.error('[ChatPage] Failed to initialize chat session:', err);
+          setInitError(
+            err instanceof ApiError || err instanceof Error
+              ? err.message
+              : 'Could not connect to chat service.',
+          );
+        });
+    };
+
+    const currentRepo = repository || (repoId ? dashboardCache.getRepository(repoId) : null);
+    if (currentRepo && currentRepo.status === 'ready') {
+      initChat();
+      return () => {
+        cancelled = true;
+        controller.abort();
+      };
+    }
 
     repositoriesApi
       .monitorUntilReady(repoId, {
         signal: controller.signal,
-        onStatus: setRepository,
+        onStatus: (data) => {
+          setRepository(data);
+          dashboardCache.setRepository(repoId, data);
+        },
       })
-      .then(() => chatApi.getSessions(repoId, { signal: controller.signal }))
-      .then((sessions) => {
-        if (cancelled) return;
-        if (sessions.length > 0) {
-          const session = sessions[sessions.length - 1];
-          setSessionId(session.id);
-          return chatApi.getMessages(session.id, { signal: controller.signal });
-        } else {
-          return chatApi.createSession(repoId, { signal: controller.signal }).then((s) => {
-            setSessionId(s.id);
-            return [] as ChatMessage[];
-          });
-        }
-      })
-      .then((msgs) => {
-        if (cancelled) return;
-        if (msgs) setMessages(msgs);
+      .then(() => {
+        if (!cancelled) initChat();
       })
       .catch((err) => {
         if (cancelled || err?.name === 'AbortError') return;
+        console.error('[ChatPage] Failed to monitor repository readiness:', err);
         setInitError(
           err instanceof ApiError || err instanceof Error
             ? err.message
@@ -225,7 +264,7 @@ export const ChatPage: React.FC = () => {
       cancelled = true;
       controller.abort();
     };
-  }, [repoId]);
+  }, [repoId, repository]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -256,14 +295,46 @@ export const ChatPage: React.FC = () => {
       created_at: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const streamMsgId = `stream-${Date.now()}`;
+    const initialAssistantMsg: ChatMessage = {
+      id: streamMsgId,
+      role: 'assistant',
+      content: '',
+      created_at: new Date().toISOString(),
+    };
+
+    setMessages((prev) => {
+      const updated = [...prev, userMsg, initialAssistantMsg];
+      if (repoId) dashboardCache.setMessages(repoId, updated);
+      return updated;
+    });
     setInput('');
     setSending(true);
 
     try {
-      const response = await chatApi.sendMessage(sessionId, text);
-      setMessages((prev) => [...prev, response]);
+      const response = await chatApi.streamMessage(
+        sessionId,
+        text,
+        (token: string) => {
+          setMessages((prev) => {
+            const updated = prev.map((m) =>
+              m.id === streamMsgId
+                ? { ...m, content: m.content + token }
+                : m,
+            );
+            if (repoId) dashboardCache.setMessages(repoId, updated);
+            return updated;
+          });
+        },
+      );
+
+      setMessages((prev) => {
+        const updated = prev.map((m) => (m.id === streamMsgId ? response : m));
+        if (repoId) dashboardCache.setMessages(repoId, updated);
+        return updated;
+      });
     } catch (err) {
+      console.error('[ChatPage] Failed to send chat message:', err);
       const errMsg =
         err instanceof ApiError ? err.message : 'Failed to send message.';
       const errResponse: ChatMessage = {
@@ -272,7 +343,12 @@ export const ChatPage: React.FC = () => {
         content: `Error: ${errMsg}`,
         created_at: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, errResponse]);
+      setMessages((prev) => {
+        const withoutPlaceholder = prev.filter((m) => m.id !== streamMsgId);
+        const updated = [...withoutPlaceholder, errResponse];
+        if (repoId) dashboardCache.setMessages(repoId, updated);
+        return updated;
+      });
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -376,9 +452,6 @@ export const ChatPage: React.FC = () => {
             onCitationNavigate={handleCitationNavigate}
           />
         ))}
-
-        {/* AI typing indicator */}
-        {sending && <TypingIndicator />}
 
         {/* Scroll anchor */}
         <div ref={messagesEndRef} aria-hidden="true" />

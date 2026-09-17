@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useOutletContext } from 'react-router-dom';
 import { Folder, FolderOpen, File, ChevronRight } from 'lucide-react';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 import { filesApi, type FileNode } from '../../api/files';
 import { repositoriesApi, type Repository } from '../../api/repositories';
+import { dashboardCache } from '../../api/cache';
+import type { DashboardContextType } from '../../components/layout/DashboardShell';
 import { ApiError } from '../../api/client';
 import { Spinner, EmptyState, ErrorState } from '../../components/ui/States';
 import './FilesPage.css';
@@ -229,20 +231,29 @@ type FetchState = 'idle' | 'loading' | 'success' | 'error';
 export const FilesPage: React.FC = () => {
   const { repoId } = useParams<{ repoId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const outletContext = useOutletContext<DashboardContextType | null>();
 
-  const [treeState, setTreeState] = useState<FetchState>('idle');
-  const [treeNodes, setTreeNodes] = useState<FileNode[]>([]);
+  const cachedTree = repoId ? dashboardCache.getTree(repoId) : null;
+  const [treeState, setTreeState] = useState<FetchState>(() => cachedTree ? 'success' : 'idle');
+  const [treeNodes, setTreeNodes] = useState<FileNode[]>(() => cachedTree ?? []);
   const [treeError, setTreeError] = useState('');
-  const [repository, setRepository] = useState<Repository | null>(null);
+  const [repository, setRepository] = useState<Repository | null>(
+    () => outletContext?.repository || (repoId ? dashboardCache.getRepository(repoId) : null),
+  );
 
-  const [fileState, setFileState] = useState<FetchState>('idle');
-  const [fileContent, setFileContent] = useState('');
-  const [fileLanguage, setFileLanguage] = useState('plaintext');
+  const selectedPath = searchParams.get('path');
+  const cachedFile = (repoId && selectedPath) ? dashboardCache.getFile(repoId, selectedPath) : null;
+  const [fileState, setFileState] = useState<FetchState>(() => cachedFile ? 'success' : 'idle');
+  const [fileContent, setFileContent] = useState(() => cachedFile?.content ?? '');
+  const [fileLanguage, setFileLanguage] = useState(() => cachedFile?.language ?? 'plaintext');
   const [fileError, setFileError] = useState('');
 
-  const [selectedPath, setSelectedPath] = useState<string | null>(
-    searchParams.get('path'),
-  );
+  // Sync with shell context when available
+  useEffect(() => {
+    if (outletContext?.repository) {
+      setRepository(outletContext.repository);
+    }
+  }, [outletContext?.repository]);
 
   // Highlight lines from citation navigation
   const highlightParam = searchParams.get('lines');
@@ -260,24 +271,45 @@ export const FilesPage: React.FC = () => {
   // Load file tree
   useEffect(() => {
     if (!repoId) return;
+    const cached = dashboardCache.getTree(repoId);
+    if (cached) {
+      setTreeNodes(cached);
+      setTreeState('success');
+      return;
+    }
+
     const controller = new AbortController();
     let treeRequested = false;
     setTreeState('loading');
+
+    const fetchTree = () => {
+      if (treeRequested) return;
+      treeRequested = true;
+      filesApi.getTree(repoId, { signal: controller.signal }).then((res) => {
+        dashboardCache.setTree(repoId, res.tree);
+        setTreeNodes(res.tree);
+        setTreeState('success');
+      }).catch((err) => {
+        if (err?.name === 'AbortError') return;
+        setTreeError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load file tree.');
+        setTreeState('error');
+      });
+    };
+
+    const currentRepo = repository || (repoId ? dashboardCache.getRepository(repoId) : null);
+    if (currentRepo && (currentRepo.files_ready || currentRepo.status === 'ready')) {
+      fetchTree();
+      return () => controller.abort();
+    }
+
     repositoriesApi
       .monitorUntilReady(repoId, {
         signal: controller.signal,
         onStatus: (data) => {
           setRepository(data);
+          dashboardCache.setRepository(repoId, data);
           if (!treeRequested && (data.files_ready || data.status === 'ready')) {
-            treeRequested = true;
-            filesApi.getTree(repoId, { signal: controller.signal }).then((res) => {
-              setTreeNodes(res.tree);
-              setTreeState('success');
-            }).catch((err) => {
-              if (err?.name === 'AbortError') return;
-              setTreeError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load file tree.');
-              setTreeState('error');
-            });
+            fetchTree();
           }
         },
       })
@@ -289,19 +321,30 @@ export const FilesPage: React.FC = () => {
         }
       });
     return () => controller.abort();
-  }, [repoId]);
+  }, [repoId, repository]);
 
   // Load file content when selection changes
   const loadFile = useCallback(
     (path: string) => {
       if (!repoId) return;
+      const cached = dashboardCache.getFile(repoId, path);
+      if (cached) {
+        setFileContent(cached.content);
+        setFileLanguage(cached.language);
+        setFileState('success');
+        setFileError('');
+        return;
+      }
+
       setFileState('loading');
       setFileError('');
       filesApi
         .getFile(repoId, path)
         .then((res) => {
+          const lang = res.language || 'plaintext';
+          dashboardCache.setFile(repoId, path, res.content, lang);
           setFileContent(res.content);
-          setFileLanguage(res.language || 'plaintext');
+          setFileLanguage(lang);
           setFileState('success');
         })
         .catch((err) => {
@@ -314,11 +357,16 @@ export const FilesPage: React.FC = () => {
     [repoId],
   );
 
-  // Load on mount if path param present
+  // Load file content when selected path in searchParams changes
   useEffect(() => {
-    if (selectedPath) loadFile(selectedPath);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (selectedPath) {
+      loadFile(selectedPath);
+    } else {
+      setFileState('idle');
+      setFileContent('');
+      setFileError('');
+    }
+  }, [selectedPath, loadFile]);
 
   // Scroll to highlighted line when content loads
   useEffect(() => {
@@ -333,9 +381,7 @@ export const FilesPage: React.FC = () => {
   }, [fileState, highlightLines]);
 
   const handleNodeSelect = (node: FileNode) => {
-    setSelectedPath(node.path);
     setSearchParams({ path: node.path }, { replace: true });
-    loadFile(node.path);
   };
 
   const handleBreadcrumbNavigate = (path: string) => {

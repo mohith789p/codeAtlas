@@ -14,7 +14,7 @@ import { ChatPage } from './pages/dashboard/ChatPage';
 const App: React.FC = () => (
   <BrowserRouter>
     <Routes>
-      {/* Home — also serves as the repository connection entry point */}
+      {/* Home — also serves as the repository linking entry point */}
       <Route path="/" element={<HomePage />} />
 
       {/* /ingest is no longer a standalone page; redirect to home */}

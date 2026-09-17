@@ -1,6 +1,6 @@
 import json
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import UUID
@@ -18,10 +18,30 @@ class GenerationProviderError(RuntimeError):
     """A provider could not generate a response and fallback may continue."""
 
 
+class ValidationGenerationError(GenerationProviderError):
+    """A generated response failed citation or grounding validation."""
+
+    def __init__(
+        self,
+        message: str,
+        content: str = "",
+        provider: str = "",
+        model: str = "",
+        results: list[RetrievalResult] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.content = content
+        self.provider = provider
+        self.model = model
+        self.results = results or []
+
+
 class GenerationProvider(Protocol):
     name: str
     model: str
     async def generate(self, prompt: str) -> str: ...
+    def generate_stream(self, prompt: str) -> AsyncIterator[str]: ...
+    async def aclose(self) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -41,15 +61,18 @@ class GeminiGenerationProvider:
         self.model = model or settings.gemini_generation_model
         self.api_key = settings.gemini_api_key
         self.base_url = settings.gemini_api_url.rstrip("/")
-        self._client = client
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(timeout=60)
+
+    async def aclose(self) -> None:
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
 
     async def generate(self, prompt: str) -> str:
         if not self.api_key:
             raise GenerationProviderError("Gemini generation is not configured.")
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=60)
         try:
-            response = await client.post(
+            response = await self._client.post(
                 f"{self.base_url}/models/{self.model}:generateContent",
                 params={"key": self.api_key},
                 json={"contents": [{"role": "user", "parts": [{"text": prompt}]}]},
@@ -61,9 +84,34 @@ class GeminiGenerationProvider:
             raise
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
             raise GenerationProviderError(redact_sensitive_text(f"Gemini generation failed: {exc}")) from None
-        finally:
-            if owns_client:
-                await client.aclose()
+
+    async def generate_stream(self, prompt: str) -> AsyncIterator[str]:
+        if not self.api_key:
+            raise GenerationProviderError("Gemini generation is not configured.")
+        try:
+            url = f"{self.base_url}/models/{self.model}:streamGenerateContent"
+            async with self._client.stream(
+                "POST",
+                url,
+                params={"key": self.api_key, "alt": "sse"},
+                json={"contents": [{"role": "user", "parts": [{"text": prompt}]}]},
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:].strip()
+                        if data_str:
+                            try:
+                                chunk = json.loads(data_str)
+                                text = chunk["candidates"][0]["content"]["parts"][0]["text"]
+                                if text:
+                                    yield text
+                            except (KeyError, IndexError, json.JSONDecodeError):
+                                continue
+        except GenerationProviderError:
+            raise
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
+            raise GenerationProviderError(redact_sensitive_text(f"Gemini streaming failed: {exc}")) from None
 
 
 class OpenAICompatibleProvider:
@@ -72,15 +120,18 @@ class OpenAICompatibleProvider:
         self.model = model
         self.api_url = api_url.rstrip("/") if api_url else None
         self.api_key = api_key
-        self._client = client
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(timeout=60)
+
+    async def aclose(self) -> None:
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
 
     async def generate(self, prompt: str) -> str:
         if not self.api_url or not self.api_key:
             raise GenerationProviderError(f"{self.name} generation is not configured.")
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=60)
         try:
-            response = await client.post(
+            response = await self._client.post(
                 f"{self.api_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json={"model": self.model, "messages": [{"role": "user", "content": prompt}]},
@@ -90,15 +141,46 @@ class OpenAICompatibleProvider:
             return payload["choices"][0]["message"]["content"]
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
             raise GenerationProviderError(redact_sensitive_text(f"{self.name} generation failed: {exc}")) from None
-        finally:
-            if owns_client:
-                await client.aclose()
+
+    async def generate_stream(self, prompt: str) -> AsyncIterator[str]:
+        if not self.api_url or not self.api_key:
+            raise GenerationProviderError(f"{self.name} generation is not configured.")
+        try:
+            async with self._client.stream(
+                "POST",
+                f"{self.api_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"model": self.model, "messages": [{"role": "user", "content": prompt}], "stream": True},
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        if data_str:
+                            try:
+                                chunk = json.loads(data_str)
+                                delta = chunk["choices"][0]["delta"].get("content", "")
+                                if delta:
+                                    yield delta
+                            except (KeyError, IndexError, json.JSONDecodeError):
+                                continue
+        except GenerationProviderError:
+            raise
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
+            raise GenerationProviderError(redact_sensitive_text(f"{self.name} streaming failed: {exc}")) from None
 
 
 class ProviderChain:
     def __init__(self, providers: list[GenerationProvider], on_event: Callable[[str, str, dict[str, Any]], Awaitable[None]] | None = None) -> None:
         self.providers = providers
         self.on_event = on_event
+
+    async def aclose(self) -> None:
+        for provider in self.providers:
+            if hasattr(provider, "aclose"):
+                await provider.aclose()
 
     async def generate(self, prompt: str) -> tuple[str, str, str]:
         if not self.providers:
@@ -114,6 +196,42 @@ class ProviderChain:
                 last_error = exc
                 if self.on_event:
                     await self.on_event("generation_provider_failed", "warning", {"provider": provider.name, "model": provider.model, "error": str(exc)})
+        raise GenerationProviderError(f"All generation providers failed: {last_error}")
+
+    async def generate_stream(self, prompt: str) -> AsyncIterator[tuple[str, str, str]]:
+        if not self.providers:
+            raise GenerationProviderError("No generation provider is configured.")
+        last_error: Exception | None = None
+        for provider in self.providers:
+            stream_started = False
+            try:
+                if hasattr(provider, "generate_stream"):
+                    iterator = provider.generate_stream(prompt)
+                else:
+                    async def _single_chunk():
+                        yield await provider.generate(prompt)
+                    iterator = _single_chunk()
+
+                async for token in iterator:
+                    if not stream_started:
+                        stream_started = True
+                        if self.on_event:
+                            await self.on_event("generation_provider_selected", "info", {"provider": provider.name, "model": provider.model})
+                    yield token, provider.name, provider.model
+                if stream_started:
+                    return
+            except GenerationProviderError as exc:
+                last_error = exc
+                if self.on_event:
+                    await self.on_event("generation_provider_failed", "warning", {"provider": provider.name, "model": provider.model, "error": str(exc)})
+                if stream_started:
+                    raise
+            except Exception as exc:
+                last_error = exc
+                if self.on_event:
+                    await self.on_event("generation_provider_failed", "warning", {"provider": provider.name, "model": provider.model, "error": str(exc)})
+                if stream_started:
+                    raise GenerationProviderError(f"{provider.name} streaming failed: {exc}") from exc
         raise GenerationProviderError(f"All generation providers failed: {last_error}")
 
 
@@ -157,6 +275,8 @@ class GenerationService:
         self.grounding_validator = grounding_validator or GroundingValidator()
         self.on_event = on_event
 
+    # Deprecated / Unused: Replaced by streaming generation function `answer_stream` below.
+    # Kept orphaned for backward compatibility and test coverage.
     async def answer(self, repo_id: UUID, session_id: UUID, query: str) -> GenerationResponse:
         retrieval = await self.retrieval.retrieve(repo_id, query)
         if not retrieval["results"]:
@@ -165,7 +285,7 @@ class GenerationService:
             return GenerationResponse(NO_RELEVANT_INFORMATION, [], "none", "none", retrieval["cache_hit"], 0.0)
         results = [_result_from_dict(item) for item in retrieval["results"]]
         try:
-            memory_history = await self.memory.load_history(session_id)
+            memory_history = await self.memory.load_history(session_id, current_query=query)
         except Exception as exc:
             raise GenerationProviderError(f"Conversation memory failed: {exc}") from exc
         prompt = build_prompt(query, results, memory_history)
@@ -177,10 +297,123 @@ class GenerationService:
         if self.on_event:
             await self.on_event("response_validation", "info", {"valid": validation.valid, "citation_count": len(validation.citations), "provider": provider, "model": model, "latency_ms": latency_ms})
         if not validation.valid:
-            raise GenerationProviderError(f"Generated response failed validation: {validation.reason}")
+            raise ValidationGenerationError(
+                f"Generated response failed validation: {validation.reason}",
+                content=content,
+                provider=provider,
+                model=model,
+                results=results,
+            )
         if self.on_event:
             await self.on_event("generation_completed", "info", {"provider": provider, "model": model, "latency_ms": latency_ms, "retrieval_count": len(results)})
         return GenerationResponse(content, validation.citations, provider, model, retrieval["cache_hit"], latency_ms)
+
+    async def answer_stream(
+        self, repo_id: UUID, session_id: UUID, query: str
+    ) -> AsyncIterator[dict[str, Any]]:
+        retrieval = await self.retrieval.retrieve(repo_id, query)
+        if not retrieval["results"]:
+            if self.on_event:
+                await self.on_event("generation_completed", "info", {"provider": "none", "model": "none", "latency_ms": 0.0, "retrieval_count": 0, "memory_tokens": 0})
+            yield {"type": "token", "content": NO_RELEVANT_INFORMATION}
+            yield {
+                "type": "done",
+                "content": NO_RELEVANT_INFORMATION,
+                "citations": [],
+                "provider": "none",
+                "model": "none",
+                "cache_hit": retrieval["cache_hit"],
+                "latency_ms": 0.0,
+            }
+            return
+
+        results = [_result_from_dict(item) for item in retrieval["results"]]
+        try:
+            memory_history = await self.memory.load_history(session_id, current_query=query)
+        except Exception as exc:
+            raise GenerationProviderError(f"Conversation memory failed: {exc}") from exc
+
+        prompt = build_prompt(query, results, memory_history)
+        started = time.perf_counter()
+        accumulated_chunks: list[str] = []
+        provider_used = ""
+        model_used = ""
+
+        try:
+            async for token, provider, model in self.providers.generate_stream(prompt):
+                provider_used = provider
+                model_used = model
+                accumulated_chunks.append(token)
+                yield {"type": "token", "content": token}
+        except GenerationProviderError:
+            raise
+        except Exception as exc:
+            raise GenerationProviderError(f"Streaming error: {exc}") from exc
+
+        full_content = "".join(accumulated_chunks)
+        latency_ms = (time.perf_counter() - started) * 1000
+
+        citation_result = self.citation_validator.validate(full_content, results)
+        validation = self.grounding_validator.validate(full_content, citation_result, results)
+        if self.on_event:
+            await self.on_event(
+                "response_validation",
+                "info",
+                {
+                    "valid": validation.valid,
+                    "citation_count": len(validation.citations),
+                    "provider": provider_used,
+                    "model": model_used,
+                    "latency_ms": latency_ms,
+                },
+            )
+
+        if not validation.valid:
+            fallback_citations = [
+                ValidatedCitation(
+                    filepath=result.filepath,
+                    start_line=result.start_line,
+                    end_line=result.end_line,
+                    symbol=result.symbol,
+                    chunk_id=str(result.chunk_id),
+                )
+                for result in results[:3]
+                if result.filepath
+            ]
+            citations_to_emit = fallback_citations
+        else:
+            citations_to_emit = validation.citations
+
+        if self.on_event:
+            await self.on_event(
+                "generation_completed",
+                "info",
+                {
+                    "provider": provider_used,
+                    "model": model_used,
+                    "latency_ms": latency_ms,
+                    "retrieval_count": len(results),
+                },
+            )
+
+        yield {
+            "type": "done",
+            "content": full_content,
+            "citations": [
+                {
+                    "file": c.filepath,
+                    "line_start": c.start_line,
+                    "line_end": c.end_line,
+                    "symbol": c.symbol,
+                    "chunk_id": str(c.chunk_id) if c.chunk_id else None,
+                }
+                for c in citations_to_emit
+            ],
+            "provider": provider_used,
+            "model": model_used,
+            "cache_hit": retrieval["cache_hit"],
+            "latency_ms": latency_ms,
+        }
 
 
 def format_retrieved_evidence(results: list[RetrievalResult]) -> str:

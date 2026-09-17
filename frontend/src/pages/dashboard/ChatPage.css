@@ -72,42 +72,30 @@
 }
 
 /* ── User message bubble ── */
-/* accent-pink-tint = accent-pink at 12% opacity over bg-surface */
 .message-bubble-user {
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-sm);
-  /* Pink tint surface — never solid pink */
-  background-color: color-mix(in srgb, #ec4899 12%, #15131d);
+  background-color: var(--bg-surface);
+  border: var(--border-width) solid var(--border-subtle);
   color: var(--text-primary);
   font-size: var(--text-body);
   line-height: var(--leading-normal);
   max-width: 80%;
-}
-
-/* Fallback for browsers without color-mix */
-@supports not (background-color: color-mix(in srgb, red 12%, blue)) {
-  .message-bubble-user {
-    background-color: rgba(236, 72, 153, 0.12);
-  }
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
 /* ── AI message ── */
-/* No bubble — text identified by icon/label, not background color */
 .message-bubble-assistant {
-  padding: var(--space-3) var(--space-8);
+  padding: var(--space-4) var(--space-6);
   border-radius: var(--radius-sm);
   font-size: var(--text-body);
   line-height: var(--leading-relaxed);
-  background-color: color-mix(in srgb, var(--accent-violet-surface-pressed) 8%, var(--bg-surface));
+  background-color: var(--bg-sidebar);
+  border: var(--border-width) solid var(--border-subtle);
   color: var(--text-primary);
   max-width: 100%;
   overflow-wrap: anywhere;
-}
-
-@supports not (background-color: color-mix(in srgb, red 8%, blue)) {
-  .message-bubble-assistant {
-    background-color: rgba(109, 40, 217, 0.08);
-  }
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* Markdown content */

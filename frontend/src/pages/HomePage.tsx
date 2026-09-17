@@ -208,10 +208,31 @@ export const HomePage: React.FC = () => {
       const repo = await repositoriesApi.ingest(payload);
       navigate(`/dashboard/${repo.id}/overview`);
     } catch (err) {
-      const msg = err instanceof ApiError
-        ? err.message
-        : 'Failed to connect repository. Please check your details and try again.';
-      setErrorMsg(msg);
+      console.error('[HomePage] Failed to link repository:', err, { payload });
+      let friendlyMessage = 'Unable to link the repository. Please check your details and try again.';
+      if (err instanceof ApiError) {
+        if (err.status === 404) {
+          friendlyMessage = 'Repository not found. Please verify the repository exists and is publicly accessible.';
+        } else if (err.status === 401 || err.status === 403) {
+          friendlyMessage = 'Access denied. Please ensure the repository is public and accessible.';
+        } else if (err.status === 400 || err.status === 422) {
+          friendlyMessage = err.message && !/^HTTP \d+/i.test(err.message) && err.message !== 'Internal Server Error'
+            ? err.message
+            : 'Invalid repository details. Please check the inputs and try again.';
+        } else if (err.status >= 500) {
+          friendlyMessage = 'The server encountered an issue while linking the repository. Please try again shortly.';
+        } else if (err.message && !/^HTTP \d+/i.test(err.message) && err.message !== 'Internal Server Error') {
+          friendlyMessage = err.message;
+        }
+      } else if (err instanceof Error) {
+        const lower = err.message.toLowerCase();
+        if (lower.includes('failed to fetch') || lower.includes('network')) {
+          friendlyMessage = 'Unable to reach the server. Please check your network connection and try again.';
+        } else if (err.message && !/^HTTP \d+/i.test(err.message) && err.message !== 'Internal Server Error') {
+          friendlyMessage = err.message;
+        }
+      }
+      setErrorMsg(friendlyMessage);
       setPageState('error');
     }
   };
@@ -227,8 +248,8 @@ export const HomePage: React.FC = () => {
 
         <div className="home-card">
           <div className="home-loading" role="status" aria-live="polite">
-            <Spinner size={32} label="Connecting repository…" />
-            <p className="home-loading-label">Connecting repository…</p>
+            <Spinner size={32} label="Linking repository…" />
+            <p className="home-loading-label">Linking repository…</p>
             <p className="home-loading-sublabel">
               This may take a moment while CodeAtlas processes your repository.
             </p>
@@ -256,7 +277,7 @@ export const HomePage: React.FC = () => {
         </p>
       </div>
 
-      {/* Connection card */}
+      {/* Linking card */}
       <div className="home-card">
         {/* Tab switcher */}
         <TabSwitcher mode={mode} onChange={handleModeChange} />
@@ -270,8 +291,8 @@ export const HomePage: React.FC = () => {
           noValidate
           aria-label={
             mode === 'url'
-              ? 'Connect by repository URL'
-              : 'Connect by repository name'
+              ? 'Link by repository URL'
+              : 'Link by repository name'
           }
         >
           {/* Tab 1 — Repository URL */}
@@ -359,7 +380,7 @@ export const HomePage: React.FC = () => {
               id="home-connect-submit"
               style={{ width: '100%', justifyContent: 'center' }}
             >
-              Connect repository
+              Link repository
             </Button>
           </div>
         </form>

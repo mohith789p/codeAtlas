@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from .retrieval import RetrievalResult
 
-CITATION_PATTERN = re.compile(r"(?P<filepath>[A-Za-z0-9_./-]+):(?P<start>\d+)-(?P<end>\d+)(?:\s+`?(?P<symbol>[A-Za-z_][A-Za-z0-9_.]*)`?)?")
+CITATION_PATTERN = re.compile(r"(?P<filepath>[A-Za-z0-9_./-]+):(?P<start>\d+)-(?P<end>\d+)(?:\s+`?\(?(?P<symbol>[A-Za-z_][A-Za-z0-9_.]*)\)?`?)?")
 
 
 @dataclass(frozen=True)

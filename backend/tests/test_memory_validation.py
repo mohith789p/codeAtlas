@@ -99,3 +99,39 @@ async def test_conversation_memory_isolated_by_session():
 
     assert "session A only" in history_a
     assert "session A only" not in history_b
+
+
+def test_citation_with_parentheses_around_symbol_is_accepted():
+    validator = CitationValidator()
+    # Matches with parentheses
+    result_parens = validator.validate("Returns 42 `src/run.py:1-1 (run)`", evidence())
+    assert result_parens.valid is True
+    assert result_parens.citations[0].symbol == "run"
+
+    # Matches without parentheses
+    result_plain = validator.validate("Returns 42 `src/run.py:1-1 run`", evidence())
+    assert result_plain.valid is True
+    assert result_plain.citations[0].symbol == "run"
+
+
+@pytest.mark.asyncio
+async def test_conversation_memory_excludes_current_turn_query():
+    session_id = uuid4()
+    messages = [
+        ChatMessage(role="user", content="first question"),
+        ChatMessage(role="assistant", content="first answer"),
+        ChatMessage(role="user", content="active turn question"),
+    ]
+    store = FakeStore({session_id: messages})
+    memory = ConversationMemory(
+        store,
+        ProviderChainLanguageModel(provider_chain=FakeSummaryChain()),
+        max_token_limit=1000,
+        message_to_token_ids=lambda text: list(range(max(1, len(text.split())))),
+    )
+
+    history = await memory.load_history(session_id, current_query="active turn question")
+
+    assert "first question" in history
+    assert "first answer" in history
+    assert "active turn question" not in history

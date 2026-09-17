@@ -134,6 +134,53 @@
   align-items: center;
 }
 
+/* ── Sidebar Footer (Unlink) ── */
+.sidebar-footer {
+  padding: var(--space-3) var(--space-2) var(--space-4);
+  border-top: var(--border-width) solid var(--border-subtle);
+  margin-top: auto;
+}
+
+.sidebar-unlink-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-nav);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+  outline: none;
+}
+
+.sidebar-unlink-btn:hover:not(:disabled) {
+  background-color: var(--bg-surface);
+  border-color: var(--border-subtle);
+  color: var(--error);
+}
+
+.sidebar-unlink-btn:hover:not(:disabled) svg {
+  color: var(--error);
+}
+
+.sidebar-unlink-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.sidebar-unlink-btn:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
 /* ── Content Area ── */
 .shell-content {
   flex: 1;

@@ -11,63 +11,59 @@
 
 :root {
   /* ─── 1. RAW COLOR TOKENS (never use directly in components) ─── */
-  --raw-black-950: #0b0a0f;
-  --raw-black-900: #111019;
-  --raw-black-850: #15131d;
-  --raw-black-800: #1b1825;
-  --raw-code-bg: #0d1117;
-  --raw-white-warm: #f4f0e8;
-  --raw-gray-300: #a9a4b2;
-  --raw-gray-400: #9a95a3;
-  --raw-blue-gray: #94a3b8;
+  --raw-obsidian-950: #090a0f;
+  --raw-obsidian-900: #0e1017;
+  --raw-obsidian-850: #141722;
+  --raw-obsidian-800: #1a1e2c;
+  --raw-code-bg: #0b0d14;
+  --raw-white-crisp: #f1f3f9;
+  --raw-slate-300: #9499ad;
+  --raw-slate-400: #7e859b;
+  --raw-slate-500: #636a82;
+  --raw-slate-600: #43485c;
   --raw-violet-500: #8b5cf6;
   --raw-violet-600: #7c3aed;
   --raw-violet-700: #6d28d9;
   --raw-violet-400: #a78bfa;
-  --raw-pink-500: #ec4899;
-  --raw-indigo-500: #6366f1;
-  --raw-green-400: #34d399;
-  --raw-amber-400: #fbbf24;
-  --raw-red-400: #f87171;
-  --raw-border: #272332;
+  --raw-emerald-400: #10b981;
+  --raw-amber-400: #f59e0b;
+  --raw-red-400: #ef4444;
+  --raw-blue-400: #3b82f6;
+  --raw-border: #1f2333;
 
   /* ─── 2. SEMANTIC TOKENS — always use these in components ─── */
 
-  /* 2.1 Surfaces (Elevation Ladder) */
-  --bg-primary: #0b0a0f;   /* Level 0 — main application background */
-  --bg-sidebar: #111019;   /* Level 1 — sidebar */
-  --bg-surface: #15131d;   /* Level 2 — cards, grouped surfaces */
-  --bg-elevated: #1b1825;  /* Level 3 — modals, dropdowns, popovers */
-  --bg-code: #0d1117;      /* Code viewer — separate semantic surface */
+  /* 2.1 Surfaces (Elevation Ladder - Neutral Obsidian & Slate) */
+  --bg-primary: #090a0f;   /* Level 0 — main application background */
+  --bg-sidebar: #0e1017;   /* Level 1 — sidebar / navigation */
+  --bg-surface: #141722;   /* Level 2 — cards, grouped surfaces */
+  --bg-elevated: #1a1e2c;  /* Level 3 — modals, dropdowns, popovers */
+  --bg-code: #0b0d14;      /* Code viewer — unified neutral code surface */
 
-  /* 2.2 Text */
-  --text-primary: #f4f0e8;     /* Main/body text, headings */
-  --text-secondary: #a9a4b2;   /* Supporting text */
-  --text-muted: #9a95a3;       /* Low-priority metadata */
-  --text-metadata: #94a3b8;    /* Repository metadata labels */
-  --text-disabled: #5c5866;    /* Disabled control labels */
+  /* 2.2 Text (Clear Contrast Hierarchy) */
+  --text-primary: #f1f3f9;     /* Main/body text, headings */
+  --text-secondary: #9499ad;   /* Supporting text */
+  --text-muted: #636a82;       /* Low-priority metadata */
+  --text-metadata: #7e859b;    /* Repository metadata labels */
+  --text-disabled: #43485c;    /* Disabled control labels */
 
-  /* 2.3 Violet Family — Primary Accent (Interaction & AI Identity) */
+  /* 2.3 Violet Family — Single Primary Accent (Brand & AI Identity) */
   --accent-violet-ui: #8b5cf6;             /* Borders, icons, focus rings, indicators */
   --accent-violet-surface: #7c3aed;        /* Filled CTA/button backgrounds */
   --accent-violet-surface-pressed: #6d28d9; /* Pressed CTA/button */
   --accent-violet-soft: #a78bfa;           /* Text, links, citations, active nav labels */
 
-  /* 2.4 Pink Family — Secondary Accent (Brand & User Identity) */
-  --accent-pink: #ec4899;
-  /* accent-pink-tint = #ec4899 at 12% opacity over bg-surface — applied inline */
+  /* 2.4 Semantic Colors (Minimal & Functional) */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
 
-  /* 2.5 Support Colors */
-  --accent-blue: #6366f1;
-  --success: #34d399;
-  --warning: #fbbf24;
-  --error: #f87171;
-
-  /* 2.6 Borders */
-  --border-subtle: #272332;
-  --border-hover: #3a3448;
+  /* 2.5 Borders (Crisp 1px Neutral Separation) */
+  --border-subtle: #1f2333;
+  --border-hover: #2f364e;
   --border-focus: #8b5cf6;   /* = accent-violet-ui */
-  --border-error: #f87171;   /* = error */
+  --border-error: #ef4444;   /* = error */
 
   /* ─── 7. TYPOGRAPHY ─── */
   --font-ui: 'Inter', system-ui, -apple-system, sans-serif;

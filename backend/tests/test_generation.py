@@ -208,3 +208,28 @@ async def test_openai_compatible_provider_parses_response_shape():
     provider = OpenAICompatibleProvider("groq", "model", "https://example.test/v1", "key", client)
     assert await provider.generate("prompt") == "answer"
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_generation_answer_stream_yields_tokens_and_done():
+    session_id = uuid4()
+    provider = FakeProvider("gemini", "The run function returns 42. `src/run.py:1-1 run`")
+    service = GenerationService(
+        FakeRetrieval(retrieved_payload()),
+        ConversationMemory(FakeMessageStore(), ProviderChainLanguageModel(provider_chain=FakeSummaryChain())),
+        ProviderChain([provider]),
+    )
+
+    chunks = []
+    async for item in service.answer_stream(uuid4(), session_id, "What does run do?"):
+        chunks.append(item)
+
+    token_chunks = [c for c in chunks if c["type"] == "token"]
+    done_chunks = [c for c in chunks if c["type"] == "done"]
+
+    assert len(token_chunks) > 0
+    assert len(done_chunks) == 1
+    assert done_chunks[0]["provider"] == "gemini"
+    assert len(done_chunks[0]["citations"]) == 1
+    assert done_chunks[0]["citations"][0]["file"] == "src/run.py"
+

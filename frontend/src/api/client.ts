@@ -21,20 +21,26 @@ async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+      ...options,
+    });
+  } catch (networkError) {
+    console.error(`[API Network Error] ${options?.method || 'GET'} ${path}:`, networkError);
+    throw networkError;
+  }
 
   if (!res.ok) {
     let body: unknown;
     try { body = await res.json(); } catch { /* ignore */ }
     const detail = (body as { detail?: unknown })?.detail;
     const responseMessage = (body as { message?: unknown })?.message;
-    const message =
+    const rawMessage =
       typeof detail === 'string'
         ? detail
         : Array.isArray(detail)
@@ -47,7 +53,27 @@ async function request<T>(
           }).join(', ')
           : typeof responseMessage === 'string'
             ? responseMessage
-            : `HTTP ${res.status}`;
+            : undefined;
+
+    // Log the error with request and response context
+    console.error(`[API Error] ${options?.method || 'GET'} ${path} returned status ${res.status}:`, {
+      status: res.status,
+      statusText: res.statusText,
+      detail: rawMessage,
+      body,
+    });
+
+    const isGenericServerError = rawMessage === 'Internal Server Error' || !rawMessage;
+    const message = (!isGenericServerError ? rawMessage : undefined) || (
+      res.status >= 500
+        ? 'A server error occurred. Please try again later.'
+        : res.status === 404
+          ? 'The requested resource was not found.'
+          : res.status === 403 || res.status === 401
+            ? 'You do not have permission to perform this action.'
+            : `Request failed with status ${res.status}`
+    );
+
     throw new ApiError(res.status, message, body);
   }
 

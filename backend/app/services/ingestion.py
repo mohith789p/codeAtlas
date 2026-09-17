@@ -1,3 +1,4 @@
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
@@ -50,15 +51,20 @@ async def run_ingestion(repository: Repository, branch: str | None, store: InMem
         repository.metadata_ready = True
         repository.updated_at = _now()
         await store.save_repository(repository)
-        archive_root = await download_and_extract(metadata, branch, settings)
 
-        repository.status = IngestionStatus.FILTERING
-        repository.updated_at = _now()
-        await store.save_repository(repository)
-        extracted_root = next((path for path in archive_root.iterdir() if path.is_dir()), archive_root)
-        files = collect_text_files(extracted_root, settings.max_file_size_bytes)
-        for path, content in files.items():
-            await store.save_file(repository.id, path, content)
+        with tempfile.TemporaryDirectory(prefix="codeatlas-") as temp_dir:
+            try:
+                archive_root = await download_and_extract(metadata, branch, settings, target_dir=Path(temp_dir))
+            except TypeError:
+                archive_root = await download_and_extract(metadata, branch, settings)
+
+            repository.status = IngestionStatus.FILTERING
+            repository.updated_at = _now()
+            await store.save_repository(repository)
+            extracted_root = next((path for path in archive_root.iterdir() if path.is_dir()), archive_root)
+            files = collect_text_files(extracted_root, settings.max_file_size_bytes)
+            for path, content in files.items():
+                await store.save_file(repository.id, path, content)
 
         repository.files_ready = True
         repository.stats.files = len(files)
