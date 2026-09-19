@@ -41,6 +41,31 @@ class RetrievalResult:
         return value
 
     @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "RetrievalResult":
+        return cls(
+            chunk_id=value["chunk_id"],
+            repo_id=value["repo_id"],
+            content=value["content"],
+            filepath=value["filepath"],
+            language=value.get("language"),
+            symbol=value.get("symbol"),
+            symbol_type=value.get("symbol_type"),
+            class_name=value.get("class_name"),
+            parent_symbol=value.get("parent_symbol"),
+            start_line=value.get("start_line"),
+            end_line=value.get("end_line"),
+            imports=value.get("imports") or [],
+            dense_score=value.get("dense_score"),
+            dense_rank=value.get("dense_rank"),
+            sparse_score=value.get("sparse_score"),
+            sparse_rank=value.get("sparse_rank"),
+            rrf_score=value.get("rrf_score"),
+            rrf_rank=value.get("rrf_rank"),
+            reranker_score=value.get("reranker_score"),
+            reranker_rank=value.get("reranker_rank"),
+        )
+
+    @classmethod
     def from_row(cls, row: dict[str, Any], repo_id: UUID | str) -> "RetrievalResult":
         metadata = row.get("chunk_metadata") or row.get("metadata") or row
         chunk_id = row.get("id") or row.get("chunk_id")
@@ -62,6 +87,7 @@ class RetrievalResult:
             dense_score=row.get("similarity"),
             sparse_score=row.get("rank_score") or row.get("ts_rank"),
         )
+
 
 
 class CacheError(RuntimeError):

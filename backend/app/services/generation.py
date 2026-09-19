@@ -275,15 +275,14 @@ class GenerationService:
         self.grounding_validator = grounding_validator or GroundingValidator()
         self.on_event = on_event
 
-    # Deprecated / Unused: Replaced by streaming generation function `answer_stream` below.
-    # Kept orphaned for backward compatibility and test coverage.
     async def answer(self, repo_id: UUID, session_id: UUID, query: str) -> GenerationResponse:
+        """Generate a complete grounded response with citation validation."""
         retrieval = await self.retrieval.retrieve(repo_id, query)
         if not retrieval["results"]:
             if self.on_event:
                 await self.on_event("generation_completed", "info", {"provider": "none", "model": "none", "latency_ms": 0.0, "retrieval_count": 0, "memory_tokens": 0})
             return GenerationResponse(NO_RELEVANT_INFORMATION, [], "none", "none", retrieval["cache_hit"], 0.0)
-        results = [_result_from_dict(item) for item in retrieval["results"]]
+        results = [RetrievalResult.from_dict(item) for item in retrieval["results"]]
         try:
             memory_history = await self.memory.load_history(session_id, current_query=query)
         except Exception as exc:
@@ -327,7 +326,7 @@ class GenerationService:
             }
             return
 
-        results = [_result_from_dict(item) for item in retrieval["results"]]
+        results = [RetrievalResult.from_dict(item) for item in retrieval["results"]]
         try:
             memory_history = await self.memory.load_history(session_id, current_query=query)
         except Exception as exc:
@@ -464,13 +463,4 @@ def build_prompt(query: str, results: list[RetrievalResult], memory_history: str
     )
 
 
-def _result_from_dict(value: dict[str, Any]) -> RetrievalResult:
-    return RetrievalResult(
-        chunk_id=value["chunk_id"], repo_id=value["repo_id"], content=value["content"], filepath=value["filepath"],
-        language=value.get("language"), symbol=value.get("symbol"), symbol_type=value.get("symbol_type"),
-        class_name=value.get("class_name"), parent_symbol=value.get("parent_symbol"), start_line=value.get("start_line"),
-        end_line=value.get("end_line"), imports=value.get("imports") or [], dense_score=value.get("dense_score"),
-        dense_rank=value.get("dense_rank"), sparse_score=value.get("sparse_score"), sparse_rank=value.get("sparse_rank"),
-        rrf_score=value.get("rrf_score"), rrf_rank=value.get("rrf_rank"), reranker_score=value.get("reranker_score"),
-        reranker_rank=value.get("reranker_rank"),
-    )
+

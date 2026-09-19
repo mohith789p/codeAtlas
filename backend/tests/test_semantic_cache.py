@@ -45,8 +45,23 @@ def test_cache_threshold_contract(similarity, threshold, expected_hit):
     assert (similarity >= threshold) is expected_hit
 
 
-def test_cache_repo_isolation_contract():
-    cached_repo = uuid4()
-    queried_repo = uuid4()
-    assert cached_repo != queried_repo
-    assert (cached_repo == queried_repo) is False
+@pytest.mark.asyncio
+async def test_cache_repo_isolation_contract():
+    from app.store import InMemoryStore
+
+    store = InMemoryStore()
+    repo_a = uuid4()
+    repo_b = uuid4()
+    embedding = [1.0, 0.0, 0.0]
+    expected_response = {"answer": "result for repo A"}
+
+    await store.save_semantic_cache(repo_a, "query text", embedding, expected_response)
+
+    # Cache hit for same repository
+    hit_a = await store.get_semantic_cache(repo_a, embedding, threshold=0.9)
+    assert hit_a == expected_response
+
+    # Cache miss for different repository even with identical query embedding
+    hit_b = await store.get_semantic_cache(repo_b, embedding, threshold=0.9)
+    assert hit_b is None
+
