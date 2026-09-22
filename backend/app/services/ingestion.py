@@ -15,12 +15,14 @@ from .embeddings import EmbeddingProviderError, GeminiEmbeddingService
 from .filtering import collect_text_files
 from .github import GitHubRepository, GitHubRepositoryError, download_and_extract, inspect_repository
 from .indexing import IndexingService
+from .observability import safe_traceable
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+@safe_traceable(name="repository_ingestion", run_type="chain", tags=["ingestion"])
 async def run_ingestion(
     repository: Repository,
     branch: str | None,

@@ -39,8 +39,17 @@ class Settings(BaseSettings):
     openrouter_generation_model: str = "openai/gpt-4o-mini"
     memory_context_budget: int = 2_000
     evaluation_target_count: int = 100
+    langsmith_tracing: bool = False
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "codeatlas"
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_environment: str = "development"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="CODE_ATLAS_", extra="ignore")
+
+    @property
+    def is_langsmith_enabled(self) -> bool:
+        return bool(self.langsmith_tracing or (self.langsmith_api_key and self.langsmith_api_key.strip()))
 
     @property
     def allowed_origins(self) -> list[str]:

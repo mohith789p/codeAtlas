@@ -6,6 +6,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 import httpx
+from langchain_core.runnables import RunnableConfig, chain
 
 from ..config import Settings
 from ..logging_utils import redact_sensitive_text
@@ -275,144 +276,208 @@ class GenerationService:
         self.grounding_validator = grounding_validator or GroundingValidator()
         self.on_event = on_event
 
-    async def answer(self, repo_id: UUID, session_id: UUID, query: str) -> GenerationResponse:
+    async def answer(self, repo_id: UUID, session_id: UUID, query: str, config: RunnableConfig | None = None) -> GenerationResponse:
         """Generate a complete grounded response with citation validation."""
-        retrieval = await self.retrieval.retrieve(repo_id, query)
-        if not retrieval["results"]:
+        @chain
+        async def LLMGeneration(inputs: dict[str, Any]) -> tuple[str, str, str]:
+            return await self.providers.generate(inputs["prompt"])
+
+        @chain
+        async def CitationValidation(inputs: dict[str, Any]) -> dict[str, Any]:
+            citation_result = self.citation_validator.validate(inputs["content"], inputs["results"])
+            validation = self.grounding_validator.validate(inputs["content"], citation_result, inputs["results"])
+            return {
+                "valid": validation.valid,
+                "reason": validation.reason,
+                "citations": validation.citations,
+            }
+
+        @chain
+        async def ChatPipeline(inputs: dict[str, Any]) -> GenerationResponse:
+            q = inputs["query"]
+            r_id = inputs["repo_id"]
+            s_id = inputs["session_id"]
+            try:
+                retrieval = await self.retrieval.retrieve(r_id, q)
+            except TypeError:
+                retrieval = await self.retrieval.retrieve(r_id, q)
+            if not retrieval["results"]:
+                if self.on_event:
+                    await self.on_event("generation_completed", "info", {"provider": "none", "model": "none", "latency_ms": 0.0, "retrieval_count": 0, "memory_tokens": 0})
+                return GenerationResponse(NO_RELEVANT_INFORMATION, [], "none", "none", retrieval["cache_hit"], 0.0)
+            results = [RetrievalResult.from_dict(item) for item in retrieval["results"]]
+            try:
+                try:
+                    memory_history = await self.memory.load_history(s_id, current_query=q)
+                except TypeError:
+                    memory_history = await self.memory.load_history(s_id, current_query=q)
+            except Exception as exc:
+                raise GenerationProviderError(f"Conversation memory failed: {exc}") from exc
+            prompt = build_prompt(q, results, memory_history)
+            started = time.perf_counter()
+            content, provider, model = await LLMGeneration.ainvoke({"prompt": prompt})
+            latency_ms = (time.perf_counter() - started) * 1000
+            val_out = await CitationValidation.ainvoke({"content": content, "results": results})
+            is_valid = val_out["valid"]
+            valid_citations = val_out["citations"]
             if self.on_event:
-                await self.on_event("generation_completed", "info", {"provider": "none", "model": "none", "latency_ms": 0.0, "retrieval_count": 0, "memory_tokens": 0})
-            return GenerationResponse(NO_RELEVANT_INFORMATION, [], "none", "none", retrieval["cache_hit"], 0.0)
-        results = [RetrievalResult.from_dict(item) for item in retrieval["results"]]
-        try:
-            memory_history = await self.memory.load_history(session_id, current_query=query)
-        except Exception as exc:
-            raise GenerationProviderError(f"Conversation memory failed: {exc}") from exc
-        prompt = build_prompt(query, results, memory_history)
-        started = time.perf_counter()
-        content, provider, model = await self.providers.generate(prompt)
-        latency_ms = (time.perf_counter() - started) * 1000
-        citation_result = self.citation_validator.validate(content, results)
-        validation = self.grounding_validator.validate(content, citation_result, results)
-        if self.on_event:
-            await self.on_event("response_validation", "info", {"valid": validation.valid, "citation_count": len(validation.citations), "provider": provider, "model": model, "latency_ms": latency_ms})
-        if not validation.valid:
-            raise ValidationGenerationError(
-                f"Generated response failed validation: {validation.reason}",
-                content=content,
-                provider=provider,
-                model=model,
-                results=results,
-            )
-        if self.on_event:
-            await self.on_event("generation_completed", "info", {"provider": provider, "model": model, "latency_ms": latency_ms, "retrieval_count": len(results)})
-        return GenerationResponse(content, validation.citations, provider, model, retrieval["cache_hit"], latency_ms)
+                await self.on_event("response_validation", "info", {"valid": is_valid, "citation_count": len(valid_citations), "provider": provider, "model": model, "latency_ms": latency_ms})
+            if not is_valid:
+                raise ValidationGenerationError(
+                    f"Generated response failed validation: {val_out.get('reason')}",
+                    content=content,
+                    provider=provider,
+                    model=model,
+                    results=results,
+                )
+            if self.on_event:
+                await self.on_event("generation_completed", "info", {"provider": provider, "model": model, "latency_ms": latency_ms, "retrieval_count": len(results)})
+            return GenerationResponse(content, valid_citations, provider, model, retrieval["cache_hit"], latency_ms)
+
+        return await ChatPipeline.ainvoke(
+            {"repo_id": repo_id, "session_id": session_id, "query": query},
+            config=config,
+        )
 
     async def answer_stream(
-        self, repo_id: UUID, session_id: UUID, query: str
+        self, repo_id: UUID, session_id: UUID, query: str, config: RunnableConfig | None = None
     ) -> AsyncIterator[dict[str, Any]]:
-        retrieval = await self.retrieval.retrieve(repo_id, query)
-        if not retrieval["results"]:
+        @chain
+        async def LLMStream(inputs: dict[str, Any]) -> AsyncIterator[tuple[str, str, str]]:
+            async for chunk in self.providers.generate_stream(inputs["prompt"]):
+                yield chunk
+
+        @chain
+        async def CitationValidation(inputs: dict[str, Any]) -> dict[str, Any]:
+            citation_result = self.citation_validator.validate(inputs["content"], inputs["results"])
+            validation = self.grounding_validator.validate(inputs["content"], citation_result, inputs["results"])
+            return {
+                "valid": validation.valid,
+                "reason": validation.reason,
+                "citations": validation.citations,
+            }
+
+        @chain
+        async def ChatPipelineStream(inputs: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+            q = inputs["query"]
+            r_id = inputs["repo_id"]
+            s_id = inputs["session_id"]
+            try:
+                retrieval = await self.retrieval.retrieve(r_id, q)
+            except TypeError:
+                retrieval = await self.retrieval.retrieve(r_id, q)
+            if not retrieval["results"]:
+                if self.on_event:
+                    await self.on_event("generation_completed", "info", {"provider": "none", "model": "none", "latency_ms": 0.0, "retrieval_count": 0, "memory_tokens": 0})
+                yield {"type": "token", "content": NO_RELEVANT_INFORMATION}
+                yield {
+                    "type": "done",
+                    "content": NO_RELEVANT_INFORMATION,
+                    "citations": [],
+                    "provider": "none",
+                    "model": "none",
+                    "cache_hit": retrieval["cache_hit"],
+                    "latency_ms": 0.0,
+                }
+                return
+
+            results = [RetrievalResult.from_dict(item) for item in retrieval["results"]]
+            try:
+                try:
+                    memory_history = await self.memory.load_history(s_id, current_query=q)
+                except TypeError:
+                    memory_history = await self.memory.load_history(s_id, current_query=q)
+            except Exception as exc:
+                raise GenerationProviderError(f"Conversation memory failed: {exc}") from exc
+
+            prompt = build_prompt(q, results, memory_history)
+            started = time.perf_counter()
+            accumulated_chunks: list[str] = []
+            provider_used = ""
+            model_used = ""
+
+            try:
+                async for token, provider, model in LLMStream.astream({"prompt": prompt}):
+                    provider_used = provider
+                    model_used = model
+                    accumulated_chunks.append(token)
+                    yield {"type": "token", "content": token}
+            except GenerationProviderError:
+                raise
+            except Exception as exc:
+                raise GenerationProviderError(f"Streaming error: {exc}") from exc
+
+            full_content = "".join(accumulated_chunks)
+            latency_ms = (time.perf_counter() - started) * 1000
+
+            val_out = await CitationValidation.ainvoke({"content": full_content, "results": results})
+            is_valid = val_out["valid"]
+            valid_citations = val_out["citations"]
             if self.on_event:
-                await self.on_event("generation_completed", "info", {"provider": "none", "model": "none", "latency_ms": 0.0, "retrieval_count": 0, "memory_tokens": 0})
-            yield {"type": "token", "content": NO_RELEVANT_INFORMATION}
+                await self.on_event(
+                    "response_validation",
+                    "info",
+                    {
+                        "valid": is_valid,
+                        "citation_count": len(valid_citations),
+                        "provider": provider_used,
+                        "model": model_used,
+                        "latency_ms": latency_ms,
+                    },
+                )
+
+            if not is_valid:
+                fallback_citations = [
+                    ValidatedCitation(
+                        filepath=result.filepath,
+                        start_line=result.start_line,
+                        end_line=result.end_line,
+                        symbol=result.symbol,
+                        chunk_id=str(result.chunk_id),
+                    )
+                    for result in results[:3]
+                    if result.filepath
+                ]
+                citations_to_emit = fallback_citations
+            else:
+                citations_to_emit = valid_citations
+
+            if self.on_event:
+                await self.on_event(
+                    "generation_completed",
+                    "info",
+                    {
+                        "provider": provider_used,
+                        "model": model_used,
+                        "latency_ms": latency_ms,
+                        "retrieval_count": len(results),
+                    },
+                )
+
             yield {
                 "type": "done",
-                "content": NO_RELEVANT_INFORMATION,
-                "citations": [],
-                "provider": "none",
-                "model": "none",
+                "content": full_content,
+                "citations": [
+                    {
+                        "file": c.filepath,
+                        "line_start": c.start_line,
+                        "line_end": c.end_line,
+                        "symbol": c.symbol,
+                        "chunk_id": str(c.chunk_id) if c.chunk_id else None,
+                    }
+                    for c in citations_to_emit
+                ],
+                "provider": provider_used,
+                "model": model_used,
                 "cache_hit": retrieval["cache_hit"],
-                "latency_ms": 0.0,
+                "latency_ms": latency_ms,
             }
-            return
 
-        results = [RetrievalResult.from_dict(item) for item in retrieval["results"]]
-        try:
-            memory_history = await self.memory.load_history(session_id, current_query=query)
-        except Exception as exc:
-            raise GenerationProviderError(f"Conversation memory failed: {exc}") from exc
-
-        prompt = build_prompt(query, results, memory_history)
-        started = time.perf_counter()
-        accumulated_chunks: list[str] = []
-        provider_used = ""
-        model_used = ""
-
-        try:
-            async for token, provider, model in self.providers.generate_stream(prompt):
-                provider_used = provider
-                model_used = model
-                accumulated_chunks.append(token)
-                yield {"type": "token", "content": token}
-        except GenerationProviderError:
-            raise
-        except Exception as exc:
-            raise GenerationProviderError(f"Streaming error: {exc}") from exc
-
-        full_content = "".join(accumulated_chunks)
-        latency_ms = (time.perf_counter() - started) * 1000
-
-        citation_result = self.citation_validator.validate(full_content, results)
-        validation = self.grounding_validator.validate(full_content, citation_result, results)
-        if self.on_event:
-            await self.on_event(
-                "response_validation",
-                "info",
-                {
-                    "valid": validation.valid,
-                    "citation_count": len(validation.citations),
-                    "provider": provider_used,
-                    "model": model_used,
-                    "latency_ms": latency_ms,
-                },
-            )
-
-        if not validation.valid:
-            fallback_citations = [
-                ValidatedCitation(
-                    filepath=result.filepath,
-                    start_line=result.start_line,
-                    end_line=result.end_line,
-                    symbol=result.symbol,
-                    chunk_id=str(result.chunk_id),
-                )
-                for result in results[:3]
-                if result.filepath
-            ]
-            citations_to_emit = fallback_citations
-        else:
-            citations_to_emit = validation.citations
-
-        if self.on_event:
-            await self.on_event(
-                "generation_completed",
-                "info",
-                {
-                    "provider": provider_used,
-                    "model": model_used,
-                    "latency_ms": latency_ms,
-                    "retrieval_count": len(results),
-                },
-            )
-
-        yield {
-            "type": "done",
-            "content": full_content,
-            "citations": [
-                {
-                    "file": c.filepath,
-                    "line_start": c.start_line,
-                    "line_end": c.end_line,
-                    "symbol": c.symbol,
-                    "chunk_id": str(c.chunk_id) if c.chunk_id else None,
-                }
-                for c in citations_to_emit
-            ],
-            "provider": provider_used,
-            "model": model_used,
-            "cache_hit": retrieval["cache_hit"],
-            "latency_ms": latency_ms,
-        }
+        async for event in ChatPipelineStream.astream(
+            {"repo_id": repo_id, "session_id": session_id, "query": query},
+            config=config,
+        ):
+            yield event
 
 
 def format_retrieved_evidence(results: list[RetrievalResult]) -> str:

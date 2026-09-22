@@ -42,6 +42,11 @@ This document details all configuration options, environment variables, provider
 | `CODE_ATLAS_CEREBRAS_GENERATION_MODEL` | `string` | `llama-3.3-70b` | Model name for Cerebras LLM fallback. |
 | `CODE_ATLAS_OPENROUTER_API_KEY` | `string` | `None` | *(Optional)* API key for OpenRouter universal fallback. |
 | `CODE_ATLAS_OPENROUTER_GENERATION_MODEL` | `string` | `openai/gpt-4o-mini` | Model name for OpenRouter LLM fallback. |
+| `CODE_ATLAS_LANGSMITH_TRACING` | `boolean` | `false` | Enable LangSmith deterministic tracing for LangChain chains and pipelines. |
+| `CODE_ATLAS_LANGSMITH_API_KEY` | `string` | `None` | *(Optional)* LangSmith API key for trace export. |
+| `CODE_ATLAS_LANGSMITH_PROJECT` | `string` | `codeatlas` | LangSmith project name for organizing traces. |
+| `CODE_ATLAS_LANGSMITH_ENDPOINT` | `string` | `https://api.smith.langchain.com` | LangSmith API endpoint URL. |
+| `CODE_ATLAS_LANGSMITH_ENVIRONMENT` | `string` | `development` | Deployment environment tag for trace metadata (e.g. `development`, `production`). |
 
 ---
 
@@ -71,6 +76,12 @@ CODE_ATLAS_SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 CODE_ATLAS_GROQ_API_KEY=gsk_your_groq_api_key
 CODE_ATLAS_CEREBRAS_API_KEY=csk_your_cerebras_api_key
 CODE_ATLAS_OPENROUTER_API_KEY=sk-or-your_openrouter_api_key
+
+# LangSmith Observability (Optional):
+CODE_ATLAS_LANGSMITH_TRACING=true
+CODE_ATLAS_LANGSMITH_API_KEY=lsv2_pt_your_langsmith_key_here
+CODE_ATLAS_LANGSMITH_PROJECT=codeatlas-prod
+CODE_ATLAS_LANGSMITH_ENVIRONMENT=production
 ```
 
 ---

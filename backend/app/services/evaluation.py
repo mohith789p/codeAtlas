@@ -12,6 +12,7 @@ from ..config import Settings
 from ..logging_utils import redact_sensitive_text
 from .embeddings import GeminiEmbeddingService, LangChainEvaluationEmbeddingService
 from .generation import GenerationProvider, GeminiGenerationProvider
+from .observability import safe_traceable
 from .retrieval import RetrievalService, RetrievalResult
 from .reranking import CrossEncoderReranker
 
@@ -208,6 +209,7 @@ class EvaluationService:
         self.validator = validator
         self.target_count = target_count
 
+    @safe_traceable(name="golden_evaluation", run_type="chain", tags=["evaluation"])
     async def evaluate_once(self, repo_id: UUID, eval_version: str | None = None, limit: int | None = None) -> dict[str, Any] | None:
         chunks = await self.persistence.list_evaluation_chunks(repo_id)
         version = eval_version or evaluation_version(chunks)

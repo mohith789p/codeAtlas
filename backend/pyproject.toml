@@ -19,6 +19,7 @@ dependencies = [
   "sentence-transformers>=3.3,<6",
   "tree-sitter-language-pack>=0.9,<1",
   "uvicorn[standard]>=0.34,<1",
+  "langsmith>=0.1.0,<1",
 ]
 
 [project.optional-dependencies]

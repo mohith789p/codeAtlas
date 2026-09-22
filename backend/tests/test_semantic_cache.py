@@ -29,7 +29,10 @@ async def test_cache_rpc_uses_explicit_parameters_and_returns_provider_result():
 
 
 def test_cache_migration_qualifies_stored_and_incoming_embeddings():
-    migration = Path("supabase/migrations/0004_fix_semantic_cache_similarity.sql").read_text(encoding="utf-8")
+    migration_path = Path("supabase/migrations/0004_fix_semantic_cache_similarity.sql")
+    if not migration_path.exists():
+        migration_path = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "0004_fix_semantic_cache_similarity.sql"
+    migration = migration_path.read_text(encoding="utf-8")
     assert "drop function if exists public.match_semantic_cache(uuid, vector, double precision);" in migration
     assert "p_query_embedding" in migration
     assert "cache_entry.query_embedding <=> p_query_embedding" in migration

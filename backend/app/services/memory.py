@@ -8,6 +8,8 @@ from langchain_core.language_models.llms import LLM
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import Field
 
+from langchain_core.runnables import RunnableConfig, chain
+
 from ..models import ChatMessage
 
 
@@ -43,7 +45,7 @@ class ConversationMemory:
         self.max_token_limit = max_token_limit
         self.message_to_token_ids = message_to_token_ids
 
-    async def load_history(self, session_id: UUID, current_query: str | None = None) -> str:
+    async def _execute_load_history(self, session_id: UUID, current_query: str | None = None, callbacks: list[Any] | None = None) -> str:
         stored_messages = await self.message_store.get_messages(session_id)
         if current_query is not None and stored_messages:
             last_msg = stored_messages[-1]
@@ -61,9 +63,23 @@ class ConversationMemory:
         )
         if self.message_to_token_ids is not None:
             memory.llm.custom_get_token_ids = self.message_to_token_ids
+        if callbacks:
+            memory.llm.callbacks = callbacks
         await memory.aprune()
         variables = await memory.aload_memory_variables({})
         return str(variables["history"])
+
+    async def load_history(self, session_id: UUID, current_query: str | None = None, config: RunnableConfig | None = None) -> str:
+        @chain
+        async def ConversationMemoryContext(inputs: dict[str, Any]) -> str:
+            callbacks = inputs.get("callbacks")
+            return await self._execute_load_history(inputs["session_id"], inputs.get("current_query"), callbacks=callbacks)
+
+        callbacks = config.get("callbacks") if config else None
+        return await ConversationMemoryContext.ainvoke(
+            {"session_id": session_id, "current_query": current_query, "callbacks": callbacks},
+            config=config,
+        )
 
 
 def _to_langchain_message(message: ChatMessage) -> HumanMessage | AIMessage:

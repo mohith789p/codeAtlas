@@ -256,3 +256,41 @@ classDiagram
 - **Sensitive Data Redaction**: The [`logging_utils`](file:///d:/workspace/codeatlas/backend/app/logging_utils.py) subsystem automatically strips API keys, Authorization headers, Bearer tokens, and secrets from all logs and database event payloads.
 - **Global Error Boundary**: FastAPI global exception handlers catch unexpected runtime failures and return sanitized RFC 7807 compliant error payloads without exposing internal stack traces.
 - **Citation Guardrails**: Hallucinated file paths or invented line numbers are stripped by `CitationValidator` before citations are presented in the UI.
+
+---
+
+## 7. Deterministic Observability & Tracing Architecture (LangSmith)
+
+CodeAtlas integrates LangSmith for end-to-end tracing across RAG retrieval, conversation memory summarization, multi-provider LLM calls, and background ingestion tasks.
+
+```mermaid
+flowchart TD
+    Req["FastAPI Request (/messages/stream, /retrieve)"] --> ConfigGen["create_runnable_config()<br/>• Fresh LangChainTracer per-request<br/>• Request-scoped tags & metadata<br/>• Redacted sensitive keys"]
+    
+    ConfigGen --> ChainExec["GenerationService / RetrievalService"]
+    
+    subgraph TracedPipeline ["LangChain Trace Tree"]
+        ChainExec --> Retrieval["RetrievalService.retrieve()<br/>(Dense + Sparse + RRF + Rerank)"]
+        ChainExec --> Memory["ConversationSummaryBufferMemory<br/>(aload_memory_variables)"]
+        ChainExec --> LLM["ProviderChain / LLM.generate_stream()"]
+    end
+    
+    subgraph BackgroundTasks ["Standalone Background Tasks"]
+        IngestTask["IngestionService.ingest_repository()"] --> SafeTrace["@safe_traceable(run_type='chain')"]
+        EvalTask["EvaluationService.generate_golden_dataset()"] --> SafeTrace
+    end
+    
+    TracedPipeline --> LangSmithCloud["LangSmith API / Cloud Dashboard"]
+    SafeTrace --> LangSmithCloud
+    
+    Lifespan["FastAPI Lifespan Shutdown"] --> Flush["flush_langsmith_traces()<br/>(wait_for_all_tracers)"]
+    Flush --> LangSmithCloud
+```
+
+### Key Architectural Pillars:
+1. **Trace Tree Integrity**: Avoids `@traceable` inside LangChain chains to prevent disconnected parent-child spans (`contextvars` vs `RunnableConfig`). Child runs inherit tracing context deterministically via `RunnableConfig` passing.
+2. **Multi-Tenant Isolation**: Never mutates global `os.environ` to attach request metadata. Per-request `RunnableConfig(callbacks=[LangChainTracer(project_name=...)], metadata={...}, tags=[...])` guarantees complete data boundary isolation between concurrent tenants.
+3. **Shutdown Trace Persistence**: Registers `flush_langsmith_traces()` (`wait_for_all_tracers()`) in the FastAPI lifespan shutdown handler to ensure in-flight traces are flushed before container termination.
+4. **Zero Latency SSE Streaming**: Token streaming in `answer_stream` yields tokens directly without per-token redaction or logging overhead; trace recording and sanitation are performed at the run boundary upon completion.
+5. **Standalone Task Decorators**: Standalone background workers (`ingestion`, `evaluation`) utilize `@safe_traceable` which safely activates when LangSmith is enabled and acts as a no-op passthrough when disabled.
+

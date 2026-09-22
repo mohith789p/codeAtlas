@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
 
+from langchain_core.runnables import RunnableConfig, chain
+
 NO_RELEVANT_INFORMATION = "I couldn't find relevant information in this project."
 DENSE_TOP_K = 20
 SPARSE_TOP_K = 20
@@ -141,9 +143,9 @@ class RetrievalService:
         self.reranker = reranker
         self.cache_threshold = cache_threshold
 
-    async def retrieve(self, repo_id: UUID, query: str, allow_cache_hit: bool = True) -> dict[str, Any]:
+    async def _execute_retrieval(self, repo_id: UUID, query: str, allow_cache_hit: bool = True) -> dict[str, Any]:
         if not query.strip():
-            return {"query": query, "repo_id": repo_id, "cache_hit": False, "results": [], "message": NO_RELEVANT_INFORMATION, "latency_ms": {}}
+            return {"query": query, "repo_id": str(repo_id), "cache_hit": False, "results": [], "message": NO_RELEVANT_INFORMATION, "latency_ms": {}}
         total_start = time.perf_counter()
         embedding_start = time.perf_counter()
         try:
@@ -158,7 +160,7 @@ class RetrievalService:
             raise CacheError(f"Semantic cache lookup failed: {exc}") from exc
         cache_ms = (time.perf_counter() - cache_start) * 1000
         if cached is not None and allow_cache_hit:
-            return {**cached, "query": query, "repo_id": repo_id, "cache_hit": True, "latency_ms": {"query_embedding": embedding_ms, "cache": cache_ms, "total": (time.perf_counter() - total_start) * 1000}}
+            return {**cached, "query": query, "repo_id": str(repo_id), "cache_hit": True, "latency_ms": {"query_embedding": embedding_ms, "cache": cache_ms, "total": (time.perf_counter() - total_start) * 1000}}
 
         async def timed(operation: Any) -> tuple[Any, float]:
             started = time.perf_counter()
@@ -197,4 +199,14 @@ class RetrievalService:
                 await self.persistence.save_semantic_cache(repo_id, query, query_embedding, payload)
             except Exception as exc:
                 raise CacheError(f"Semantic cache write failed: {exc}") from exc
-        return {**payload, "query": query, "repo_id": repo_id, "cache_hit": False}
+        return {**payload, "query": query, "repo_id": str(repo_id), "cache_hit": False}
+
+    async def retrieve(self, repo_id: UUID, query: str, allow_cache_hit: bool = True, config: RunnableConfig | None = None) -> dict[str, Any]:
+        @chain
+        async def HybridRetrieval(inputs: dict[str, Any]) -> dict[str, Any]:
+            return await self._execute_retrieval(inputs["repo_id"], inputs["query"], inputs.get("allow_cache_hit", True))
+
+        return await HybridRetrieval.ainvoke(
+            {"repo_id": repo_id, "query": query, "allow_cache_hit": allow_cache_hit},
+            config=config,
+        )

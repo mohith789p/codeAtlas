@@ -30,6 +30,7 @@ from .services.generation import (
     build_provider_chain,
 )
 from .services.memory import ConversationMemory, ProviderChainLanguageModel
+from .services.observability import create_runnable_config, flush_langsmith_traces, setup_langsmith_environment
 from .services.reranking import CrossEncoderReranker
 from .services.retrieval import CacheError, RetrievalError, RetrievalService
 from .store import store
@@ -52,6 +53,7 @@ async def global_exception_handler(request, exc: Exception) -> JSONResponse:
 
 @app.on_event("startup")
 async def hydrate_repository_registry() -> None:
+    setup_langsmith_environment(settings)
     try:
         await store.hydrate_repositories()
     except PersistenceError:
@@ -63,6 +65,7 @@ async def hydrate_repository_registry() -> None:
 
 @app.on_event("shutdown")
 async def cleanup_resources() -> None:
+    flush_langsmith_traces()
     if store.persistence is not None and hasattr(store.persistence, "aclose"):
         await store.persistence.aclose()
 
@@ -163,8 +166,13 @@ async def retrieve_repository(repository_id: UUID, payload: dict[str, str]) -> d
         GeminiEmbeddingService(settings),
         CrossEncoderReranker(settings.reranker_model),
     )
+    config = create_runnable_config(
+        tags=["retrieval"],
+        metadata={"repo_id": str(repository_id), "query": query},
+        settings=settings,
+    )
     try:
-        result = await service.retrieve(repository_id, query)
+        result = await service.retrieve(repository_id, query, config=config)
     except (CacheError, RetrievalError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     await store.log_event(repository_id, "retrieval", "info", "Repository retrieval completed", {"cache_hit": result["cache_hit"], "final_count": len(result["results"])}, result["latency_ms"].get("total"))
@@ -218,8 +226,13 @@ async def send_message(session_id: UUID, payload: dict[str, str]) -> ChatMessage
         providers=build_provider_chain(settings, on_event=log_generation_event),
         on_event=log_generation_event,
     )
+    config = create_runnable_config(
+        tags=["chat", "message"],
+        metadata={"repo_id": str(session.repository_id), "session_id": str(session_id), "query": content},
+        settings=settings,
+    )
     try:
-        generated = await service.answer(session.repository_id, session_id, content)
+        generated = await service.answer(session.repository_id, session_id, content, config=config)
         assistant_content = generated.content
         citations = [
             {
@@ -289,10 +302,15 @@ async def stream_message(session_id: UUID, payload: dict[str, str]) -> Streaming
         providers=build_provider_chain(settings, on_event=log_generation_event),
         on_event=log_generation_event,
     )
+    config = create_runnable_config(
+        tags=["chat", "streaming"],
+        metadata={"repo_id": str(session.repository_id), "session_id": str(session_id), "query": content},
+        settings=settings,
+    )
 
     async def event_generator():
         try:
-            async for event in service.answer_stream(session.repository_id, session_id, content):
+            async for event in service.answer_stream(session.repository_id, session_id, content, config=config):
                 if event["type"] == "token":
                     yield f"data: {json.dumps(event)}\n\n"
                 elif event["type"] == "done":
