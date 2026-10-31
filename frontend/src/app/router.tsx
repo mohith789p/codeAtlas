@@ -1,0 +1,28 @@
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { HomePage } from '../features/repositories/pages/HomePage';
+import { DashboardShell } from '../shared/components/layout/DashboardShell';
+import { OverviewPage } from '../features/overview/pages/OverviewPage';
+import { FilesPage } from '../features/files/pages/FilesPage';
+import { ChatPage } from '../features/chat/pages/ChatPage';
+
+export const AppRouter: React.FC = () => (
+  <Routes>
+    {/* Home — also serves as the repository linking entry point */}
+    <Route path="/" element={<HomePage />} />
+
+    {/* /ingest is no longer a standalone page; redirect to home */}
+    <Route path="/ingest" element={<Navigate to="/" replace />} />
+
+    {/* Dashboard — nested under the shell */}
+    <Route path="/dashboard/:repoId" element={<DashboardShell />}>
+      <Route index element={<Navigate to="overview" replace />} />
+      <Route path="overview" element={<OverviewPage />} />
+      <Route path="files" element={<FilesPage />} />
+      <Route path="chat" element={<ChatPage />} />
+    </Route>
+
+    {/* Catch-all fallback */}
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Routes>
+);

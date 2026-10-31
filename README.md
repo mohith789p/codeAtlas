@@ -1,187 +1,254 @@
-# CodeAtlas 🗺️
+# CodeAtlas
 
-**CodeAtlas** is an AI-powered repository intelligence and conversational code exploration engine. It transforms complex codebases into interactive knowledge graphs, enabling developers to query, analyze, and navigate code with precision, verified source citations, and real-time streaming intelligence.
-
----
-
-## 🚀 Key Highlights
-
-- **⚡ Incremental Multi-Stage Ingestion**: Streams and extracts remote GitHub archives, filters source assets, generates AST-aware syntax chunks, and calculates content hashes for deduplicated indexing.
-- **🔍 Hybrid Retrieval with RRF**: Combines dense vector search (Google Gemini embeddings) and sparse BM25/keyword full-text search merged via Reciprocal Rank Fusion (RRF), finalized by a Cross-Encoder reranker.
-- **🛡️ Grounded & Validated Citations**: Validates LLM responses against retrieved evidence chunks and enforces strict line-level citations (`filepath:line_start-line_end`).
-- **💬 Real-Time SSE Chat & Memory**: Streams responses with token-level Server-Sent Events (SSE) and persists conversation context using LangChain summary buffer memory.
-- **🗄️ Resilient Persistence Strategy**: Dual-mode storage supporting enterprise Supabase PostgreSQL + `pgvector` with zero-config in-memory fallback for local development and CI testing.
+> AI-powered repository intelligence engine providing conversational codebase exploration, AST-grounded search, and verified code citations.
 
 ---
 
-## 🏗️ Architecture Overview
+## Overview
+
+### Problem
+Navigating unfamiliar, large-scale codebases is slow, fragmented, and mentally taxing. Developers frequently struggle to understand architectural patterns, track down symbol definitions, verify dependencies, and locate relevant logic without deep context switching. Standard LLM code assistants often hallucinate line numbers, misunderstand repository-wide relationships, or lack grounded codebase citations.
+
+### Solution
+**CodeAtlas** solves this by converting GitHub repositories into queryable, hybrid-indexed knowledge graphs. It extracts repository source code, parses Abstract Syntax Trees (ASTs) for function and class boundaries, indexes dense semantic embeddings alongside sparse BM25 indices, and provides an interactive dashboard with real-time token streaming and verified line-level source code citations.
+
+### What the Project Does
+* Ingests and extracts remote GitHub repositories asynchronously.
+* Analyzes and chunks source code at AST symbol boundaries.
+* Executes hybrid search (dense pgvector vector search + sparse BM25Okapi keyword search) merged via Reciprocal Rank Fusion (RRF) and Cross-Encoder reranking.
+* Delivers answers with token-by-token Server-Sent Events (SSE) streaming and clickable line-level citations (`file:start_line-end_line`).
+* Provides a full code browser with syntax highlighting and file tree navigation.
+
+---
+
+## Key Features
+
+* **⚡ Multi-Stage Ingestion Pipeline**: Asynchronously downloads, filters non-code assets, chunks files via AST symbol parsing, and calculates content hashes for incremental deduplication.
+* **🔍 Hybrid Concurrent Retrieval (RRF + Cross-Encoder)**: Combines dense vector similarity (`pgvector`) and sparse lexical retrieval (`BM25Okapi`), fused via Reciprocal Rank Fusion (RRF) and reranked using Cross-Encoder models.
+* **🛡️ Validated Line-Level Citations**: Enforces strict grounding checks on generated answers to prevent hallucinations, attaching clickable references (`filepath:start_line-end_line`) to each source snippet.
+* **💬 Real-Time SSE Chat Streaming**: Conversational chat interface backed by Server-Sent Events (SSE) for instantaneous token delivery and historical session management.
+* **📂 Full-Featured File Tree & Syntax Browser**: Hierarchical repository explorer with language detection, line numbers, and active citation highlighting.
+* **🗄️ Resilient Multi-Tier Persistence**: Enterprise-ready PostgreSQL / Supabase backend with graceful, non-blocking in-memory fallback for local development and CI testing.
+
+---
+
+## Architecture
+
+The system follows a modular, decoupled architecture connecting a React single-page application (SPA) to a Python FastAPI backend orchestrated into specialized pipeline steps. For a complete deep-dive on component interactions and trade-offs, see [Architecture Documentation](docs/ARCHITECTURE.md).
 
 ```mermaid
 flowchart TD
-    subgraph Client ["Client Layer"]
-        UI["React 18 + Vite SPA"]
-        Chat["Streaming Chat & Citations"]
-        Files["Syntax-Highlighted Code Browser"]
+    subgraph Client ["Frontend Layer (React 18 + Vite)"]
+        UI["Feature Dashboard"]
+        ChatUI["Streaming Chat & Citations"]
+        FileUI["Interactive File Explorer"]
     end
 
-    subgraph Gateway ["FastAPI Gateway & API Layer"]
-        API["REST & SSE Endpoints"]
-        Middleware["CORS & Error Handlers"]
+    subgraph API ["Gateway & Route Layer (FastAPI)"]
+        RepoRoute["/api/repositories"]
+        FileRoute["/api/repositories/{id}/tree & /files"]
+        ChatRoute["/api/chat/sessions & /stream"]
+        QueryRoute["/api/queries"]
     end
 
-    subgraph Ingestion ["Ingestion & Indexing Engine"]
-        GH["GitHub Downloader & Extractor"]
-        Filter["File Filter & Language Classifier"]
-        Chunker["AST & Tree-Sitter Chunker"]
-        Embedder["Gemini Vector Embedder (768d)"]
-        Indexer["Content-Hash Incremental Indexer"]
-    end
-
-    subgraph Intelligence ["Hybrid RAG & Generation"]
-        Dense["Dense Vector Match (pgvector)"]
-        Sparse["Sparse Full-Text Search (tsvector)"]
-        RRF["Reciprocal Rank Fusion (RRF)"]
-        Rerank["Cross-Encoder Reranker"]
-        Chain["Multi-Provider LLM Chain (Gemini / Groq / Cerebras / OpenRouter)"]
-        Validator["Citation & Grounding Validator"]
+    subgraph Pipeline ["Ingestion & Retrieval Pipeline"]
+        GHClient["GitHub Archive Extractor"]
+        ASTChunker["AST & Symbol Chunker"]
+        BM25["BM25 Lexical Registry"]
+        Hybrid["Dense + Sparse Fusion (RRF)"]
+        Reranker["Cross-Encoder Reranker"]
+        LLM["Resilient Multi-Provider LLM Chain"]
     end
 
     subgraph Storage ["Persistence Layer"]
-        Memory["In-Memory Store (Dev/Test Fallback)"]
-        Supabase[("Supabase PostgreSQL + pgvector")]
+        DB[("PostgreSQL / Supabase + pgvector")]
+        MemFallback[("In-Memory State Fallback")]
     end
 
     UI -->|REST / SSE| API
-    API --> Ingestion
-    API --> Intelligence
-    Ingestion --> Storage
-    Intelligence --> Storage
+    ChatUI --> ChatRoute
+    FileUI --> FileRoute
+    API --> Pipeline
+    Pipeline --> Storage
 ```
+
+### System Interactions
+1. **Ingestion Flow**: `POST /api/repositories` downloads the remote GitHub archive, extracts text files, parses syntax trees into symbol-aware chunks, embeds chunks, and saves to database tables and hot in-memory BM25 indices.
+2. **Retrieval Flow**: Questions are preprocessed and queried concurrently across dense vector embeddings and sparse lexical tokens. Results are blended via Reciprocal Rank Fusion ($RRF$) and scored by a Cross-Encoder reranker.
+3. **Generation & Citation Flow**: Top code snippets form grounded prompts sent to the LLM chain (Gemini / Groq / Cerebras / OpenRouter). Output tokens stream via SSE, while citations are validated against actual line ranges before emitting the finalized message.
 
 ---
 
-## 📂 Project Structure
+## Tech Stack
+
+| Domain | Technology | Role |
+| :--- | :--- | :--- |
+| **Frontend UI** | React 18, TypeScript, Vite | Fast Single-Page Application (SPA) dashboard |
+| **Styling & Icons** | CSS Custom Properties, Lucide Icons | Responsive UI design and iconography |
+| **Code Highlighting** | Highlight.js | Source code rendering and syntax highlighting |
+| **Backend Framework** | FastAPI, Python 3.12, Uvicorn | Asynchronous REST and Server-Sent Events (SSE) gateway |
+| **Vector Search** | PostgreSQL, `pgvector`, PostgREST / Supabase | Dense vector storage and similarity search RPCs |
+| **Sparse Lexical Search** | Rank-BM25 (`BM25Okapi`) | In-memory token-level keyword retrieval |
+| **Embeddings** | Google Gemini (`text-embedding-004`) | 768-dimensional code representation |
+| **LLM Inference** | Gemini 2.0 / Groq / Cerebras / OpenRouter | Resilient 4-tier conversational generation fallback |
+| **Reranking** | Sentence-Transformers (`ms-marco-MiniLM-L-6-v2`) | Cross-encoder relevance scoring |
+| **Testing** | Pytest, AnyIO, HTTPX ASGI Transport | Unit and integration test validation |
+
+---
+
+## Project Structure
+
+The project is structured into clean domain modules, ensuring separation of concerns:
 
 ```
 codeatlas/
-├── docs/                      # Technical documentation suite
-│   ├── API.md                 # Comprehensive REST & SSE API specification
-│   ├── ARCHITECTURE.md        # Deep-dive architecture and component design
-│   └── CONFIGURATION.md       # Complete environment variable reference
-├── README.md                  # Project overview and quickstart guide
-│
-├── backend/                   # FastAPI Python backend service
+├── backend/
 │   ├── app/
-│   │   ├── config.py          # Pydantic Settings & environment parsing
-│   │   ├── main.py            # Route handlers & lifecycle events
-│   │   ├── models.py          # Domain models & Pydantic schemas
-│   │   ├── persistence.py     # Supabase REST client implementation
-│   │   ├── store.py           # Unified In-Memory / Supabase store boundary
-│   │   └── services/          # Core business services
-│   │       ├── chunking.py    # Language-aware file chunking
-│   │       ├── embeddings.py  # Gemini embedding integration & batching
-│   │       ├── evaluation.py  # Automated golden evaluation framework
-│   │       ├── filtering.py   # File exclusion & extension classification
-│   │       ├── generation.py  # Provider chain, validation, and SSE streaming
-│   │       ├── github.py      # GitHub archive downloader & metadata inspector
-│   │       ├── indexing.py    # Incremental document indexer & hash records
-│   │       ├── memory.py      # LangChain conversation buffer memory
-│   │       ├── reranking.py   # Cross-encoder semantic reranker
-│   │       ├── retrieval.py   # Hybrid dense/sparse search & RRF merger
-│   │       └── validation.py  # Citation grounding & verification logic
-│   ├── tests/                 # Unit, integration, and recovery test suite
-│   └── pyproject.toml         # Python package dependencies & tools
+│   │   ├── api/
+│   │   │   ├── routes/              # Modular route handlers (repositories, files, chat, queries)
+│   │   │   ├── dependencies.py      # Dependency injection factories
+│   │   │   └── router.py            # API router aggregator
+│   │   ├── database/                # PostgREST repositories, connections, and data models
+│   │   ├── embeddings/              # Vector embedding services
+│   │   ├── generation/              # Prompt builder, LLM client chain, citation validator
+│   │   ├── ingestion/               # GitHub extractor, AST chunker, deduplicator, indexer
+│   │   ├── retrieval/               # Query preprocessor, BM25 registry, RRF fusion, reranker
+│   │   ├── schemas/                 # Pydantic request, response, and domain models
+│   │   ├── services/                # Business logic services (repository, file, chat, query)
+│   │   ├── shared/                  # Config, rate limiter, observability, logging, exceptions
+│   │   └── main.py                  # Application entry point and middleware configuration
+│   ├── supabase/migrations/         # PostgreSQL DDL, RPCs, and schema migrations
+│   └── tests/                       # Unit and integration test suites
 │
-├── frontend/                  # React 18 TypeScript frontend
-│   ├── src/
-│   │   ├── api/               # API clients, SSE stream consumers, and cache
-│   │   ├── components/        # UI components & dashboard shell
-│   │   ├── hooks/             # Custom React hooks (useChatSession)
-│   │   ├── pages/             # Route pages (Home, Overview, Chat, Files)
-│   │   └── utils/             # Citation formatting & markdown helpers
-│   ├── package.json           # Frontend dependencies and build scripts
-│   └── vite.config.ts         # Vite build configuration
-│
-└── supabase/                  # Database schema migrations
-    └── migrations/
-        ├── 0001_initial_schema.sql
-        ├── 0002_retrieval_schema.sql
-        ├── 0003_evaluation_schema.sql
-        └── 0004_fix_semantic_cache_similarity.sql
+├── frontend/
+│   └── src/
+│       ├── app/                     # App entry point, routing, and shell layout
+│       ├── features/
+│       │   ├── repositories/        # Repository listing, creation, and monitoring
+│       │   ├── chat/                # Real-time SSE chat, citations, and message bubbles
+│       │   ├── files/               # Interactive file tree explorer and code viewer
+│       │   └── overview/            # Repository metadata metrics and processing statistics
+│       ├── services/api/            # Unified API fetch client and in-memory caches
+│       ├── shared/                  # Reusable UI components, states, and hooks
+│       └── styles/                  # Design tokens, reset rules, and global styles
 ```
 
 ---
 
-## ⚡ Quickstart Guide
+## Getting Started
 
 ### Prerequisites
-- **Python 3.12+**
-- **Node.js 18+** & **npm**
-- **Google Gemini API Key** (Required for embeddings and default generation)
-- *(Optional)* **Supabase Project** (For durable database persistence)
+* **Python 3.12+**
+* **Node.js 18+** & **npm**
+* **Git**
+* *(Optional)* Supabase project credentials for persistent PostgreSQL storage.
 
----
-
-### 1. Backend Setup
-
+### 1. Clone the Repository
 ```bash
-# Navigate to backend directory
+git clone https://github.com/your-org/codeatlas.git
+cd codeatlas
+```
+
+### 2. Backend Setup
+```bash
 cd backend
-
-# Create and activate virtual environment
 python -m venv .venv
-# On Windows:
-.venv\Scripts\activate
-# On Linux/macOS:
-# source .venv/bin/activate
 
-# Install dependencies in editable mode with test tools
-pip install -e ".[test]"
+# Windows
+.\.venv\Scripts\Activate.ps1
+# Linux / macOS
+source .venv/bin/activate
 
-# Configure environment variables
-# Copy template or create .env file:
-# CODE_ATLAS_GEMINI_API_KEY="your-gemini-api-key"
+pip install -e .
 ```
 
-Start the backend development server:
+### 3. Frontend Setup
 ```bash
-uvicorn app.main:app --reload --port 8000
+cd ../frontend
+npm install
 ```
-API Documentation will be accessible at: `http://localhost:8000/docs`.
 
 ---
 
-### 2. Frontend Setup
+## Environment Variables
 
+Configure backend environment variables in a `.env` file inside `backend/` or export them in your shell:
+
+| Variable | Description | Default | Required |
+| :--- | :--- | :--- | :---: |
+| `CODE_ATLAS_ENV` | Environment mode (`development`, `production`, `test`) | `development` | No |
+| `CODE_ATLAS_GEMINI_API_KEY` | Google Gemini API key for embeddings and generation | `""` | Yes* |
+| `CODE_ATLAS_SUPABASE_URL` | Supabase project REST URL | `""` | No (in-memory fallback) |
+| `CODE_ATLAS_SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role secret key | `""` | No (in-memory fallback) |
+| `CODE_ATLAS_GITHUB_TOKEN` | GitHub Personal Access Token (prevents rate limits) | `""` | No |
+| `CODE_ATLAS_GROQ_API_KEY` | Optional Groq fallback API key | `""` | No |
+| `CODE_ATLAS_CEREBRAS_API_KEY` | Optional Cerebras fallback API key | `""` | No |
+| `CODE_ATLAS_OPENROUTER_API_KEY` | Optional OpenRouter fallback API key | `""` | No |
+
+Frontend configuration (`frontend/.env`):
+| Variable | Description | Default | Required |
+| :--- | :--- | :--- | :---: |
+| `VITE_API_BASE_URL` | Target backend API base prefix | `/api` | No |
+
+*\*Required for full live vector retrieval and generation; mock modes operate during unit tests.*
+
+---
+
+## Usage
+
+### 1. Start the Backend API Server
 ```bash
-# Navigate to frontend directory
-cd ../frontend
+cd backend
+.\.venv\Scripts\Activate.ps1
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+The API is available at `http://localhost:8000` (Swagger UI at `/docs`).
 
-# Install dependencies
-npm install
-
-# Start Vite development server
+### 2. Start the Frontend Development Server
+```bash
+cd frontend
 npm run dev
 ```
-Access the application web interface at: `http://localhost:5173`.
+Open `http://localhost:5173` in your browser.
+
+### 3. Explore a Repository
+1. **Ingest**: Paste a public GitHub URL (e.g. `https://github.com/pallets/flask`) and click **Ingest**.
+2. **Monitor**: Watch live status transitions (`downloading` &rarr; `filtering` &rarr; `chunking` &rarr; `indexing` &rarr; `ready`).
+3. **Chat**: Ask natural-language questions (e.g. *"How does the routing decorator work?"*) to receive answers with line citations.
+4. **Browse**: Click on any citation or navigate the **Files** tab to view the source code with active line highlighting.
 
 ---
 
-## 🧪 Running the Test Suite
+## API Documentation
 
-Run the complete backend automated test suite:
+For complete parameter definitions, request bodies, error schemas, and response examples, refer to the [API Reference](docs/API.md).
+
+### Core Endpoints Overview
+* **Repositories**: `POST /api/repositories`, `GET /api/repositories`, `GET /api/repositories/{id}`
+* **File Operations**: `GET /api/repositories/{id}/tree`, `GET /api/repositories/{id}/files/{filepath}`
+* **Chat & Streaming**: `POST /api/chat/stream`, `GET /api/chat/sessions`, `GET /api/chat/sessions/{id}/messages`, `DELETE /api/chat/sessions`
+* **Grounded Queries**: `POST /api/queries`
+* **Health Check**: `GET /health`
+
+### Further Documentation
+* **[Architecture Guide](docs/ARCHITECTURE.md)**: Deep dive into the 7-stage ingestion pipeline, hybrid RRF retrieval, and LLM fallback chain.
+* **[Database Documentation](docs/DATABASE.md)**: PostgreSQL schemas, `pgvector` HNSW index configuration, and SQL RPC procedures.
+* **Interactive OpenAPI UI**: Start the server and visit `http://localhost:8000/docs`.
+
+---
+
+## Testing
+
+### Backend Unit & Integration Tests
+Execute the full test suite using `pytest`:
 ```bash
-# Run all unit and mock-backed integration tests
-pytest
-
-# Run tests with short execution summaries
-pytest -q -m "not live"
-
-# Run specific domain test suites
-pytest tests/test_retrieval_pipeline.py tests/test_semantic_cache.py
+cd backend
+.\.venv\Scripts\Activate.ps1
+pytest -v
 ```
 
-Run frontend typecheck and production build:
+### Frontend Type-Checking & Production Build
+Validate TypeScript typings and compile the production bundle:
 ```bash
 cd frontend
 npm run build
@@ -189,14 +256,20 @@ npm run build
 
 ---
 
-## 📖 Documentation Index
+## Deployment
 
-- 📘 [**ARCHITECTURE.md**](./docs/ARCHITECTURE.md): System architecture, pipeline flows, and component interactions.
-- 📙 [**API.md**](./docs/API.md): Full REST & Server-Sent Events (SSE) API specification with JSON schemas.
-- 📗 [**CONFIGURATION.md**](./docs/CONFIGURATION.md): Complete reference for environment variables and runtime settings.
+### Containerized Deployment (Docker)
+Build and run the backend container:
+```bash
+cd backend
+docker build -t codeatlas-backend .
+docker run -p 8000:8000 --env-file .env codeatlas-backend
+```
 
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
+### Production Frontend Build
+Compile the optimized static bundle:
+```bash
+cd frontend
+npm run build
+```
+Deploy the output `dist/` directory to any CDN or static hosting service (Vercel, Netlify, Cloudflare Pages, NGINX). Configure reverse proxy routing from `/api` to the backend gateway at port `8000`.

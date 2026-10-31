@@ -1,296 +1,272 @@
-# CodeAtlas Architecture Guide 🏛️
+# Architecture
 
-This document outlines the architectural blueprint, data flows, core components, and engineering decisions behind **CodeAtlas**.
+## 1. System Overview
 
----
+CodeAtlas is a codebase intelligence engine designed to turn GitHub repositories into queryable, hybrid-indexed knowledge bases. Navigating large, unfamiliar codebases typically requires manually searching symbols, jumping between files, and guessing execution paths. CodeAtlas automates this understanding by combining Abstract Syntax Tree (AST) code chunking, hybrid dense/sparse retrieval, cross-encoder reranking, and grounded LLM generation with verified line-level source code citations.
 
-## 1. System Context & High-Level Architecture
-
-CodeAtlas operates as a decoupled client-server system designed for repository intelligence, code semantic search, and citation-grounded conversational reasoning.
-
-```mermaid
-graph TD
-    User([Developer / User])
-    
-    subgraph Client ["Client Tier (React 18 + Vite)"]
-        SPA["Single Page Application"]
-        HookChat["useChatSession (SSE Engine)"]
-        UIComp["Components (Overview, Files, Chat)"]
-        Cache["Client-Side Dashboard Cache"]
-    end
-
-    subgraph Service ["Application Tier (FastAPI Service)"]
-        Router["API Gateway / Controllers"]
-        
-        subgraph PipelineIngestion ["Ingestion Engine"]
-            GH["GitHub Archive Service"]
-            Filter["File Filter & Language Classifier"]
-            Chunker["AST / LangChain Chunker"]
-            EmbedService["Gemini Embedding Service"]
-            IndexService["Content-Hash Indexing Service"]
-        end
-
-        subgraph PipelineRAG ["Hybrid RAG & Generation"]
-            CacheService["Semantic Cache Engine"]
-            DenseSearch["Dense Search (Gemini 768d)"]
-            SparseSearch["Sparse Full-Text Match"]
-            RRF["Reciprocal Rank Fusion (k=60)"]
-            Rerank["Cross-Encoder Reranker"]
-            Providers["LLM Provider Chain (Gemini/Groq/Cerebras/OpenRouter)"]
-            Memory["ConversationSummaryBufferMemory"]
-            Validator["Citation & Grounding Validator"]
-        end
-    end
-
-    subgraph Persistence ["Persistence Tier"]
-        Store["InMemoryStore (Default / Local Fallback)"]
-        Supabase[("Supabase PostgreSQL + pgvector")]
-    end
-
-    User <--> SPA
-    SPA --> HookChat
-    SPA --> UIComp
-    SPA <--> Cache
-    HookChat -->|REST & SSE| Router
-    UIComp -->|REST| Router
-
-    Router --> PipelineIngestion
-    Router --> PipelineRAG
-    PipelineIngestion --> Store
-    PipelineRAG --> Store
-    Store -.->|Configured| Supabase
-```
+The platform provides developers with an interactive web dashboard where they can submit repositories, track asynchronous ingestion stages in real time, query logic with token-by-token streaming, inspect clickable citations, and navigate an interactive syntax-highlighted code tree.
 
 ---
 
-## 2. Ingestion & Indexing Pipeline
+## 2. High-Level Architecture
 
-The ingestion pipeline transforms raw repository source code into indexed, searchable chunks. It is designed to be **incremental**, **idempotent**, and **resilient** to network interruptions.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant API as FastAPI Gateway
-    participant Store as InMemory / Supabase Store
-    participant Ingestion as Ingestion Engine
-    participant GH as GitHub API / Raw Archive
-    participant Chunker as Syntax Chunker
-    participant Embed as Gemini Embedder
-    participant Indexer as Indexing Service
-
-    Client->>API: POST /api/repositories (url / manual)
-    API->>Store: get_or_create_repository()
-    API-->>Client: 202 Accepted (Repository object)
-    
-    Note over API,Ingestion: Async Background Task Launched
-
-    Ingestion->>Store: Set status: DOWNLOADING
-    Ingestion->>GH: Inspect repo metadata & download zip archive
-    GH-->>Ingestion: Extracted directory tree
-    
-    Ingestion->>Store: Set status: FILTERING
-    Ingestion->>Ingestion: collect_text_files (skip binaries, .git, minified files)
-    Ingestion->>Store: save_files()
-    
-    Ingestion->>Store: Set status: CHUNKING
-    Ingestion->>Chunker: chunk_file(path, content)
-    Chunker-->>Ingestion: list[Document] with AST metadata
-    Ingestion->>Store: save_documents()
-    
-    Ingestion->>Store: Set status: INDEXING
-    Ingestion->>Indexer: index_documents(repo_id, documents)
-    Indexer->>Store: get_chunks_by_hash(hashes)
-    Indexer->>Embed: embed_documents(unindexed_chunks) in batches
-    Embed-->>Indexer: 768-dimensional float vectors
-    Indexer->>Store: upsert_chunks() & upsert_chunk_metadata()
-    Indexer->>Store: delete_stale_chunks()
-    
-    Ingestion->>Store: Set status: READY
-    Ingestion->>Store: log_event(status=READY, duration_ms)
-```
-
-### Ingestion Lifecycle Stages
-```
-QUEUED ──► DOWNLOADING ──► FILTERING ──► CHUNKING ──► INDEXING ──► READY
-  │                                                                 ▲
-  └───────────────────────────────► FAILED ─────────────────────────┘ (Retry on duplicate submission)
-```
-
-1. **`QUEUED`**: Repository registered in database; waiting for worker execution.
-2. **`DOWNLOADING`**: Fetching repository metadata (stars, forks, languages, topics) and streaming ZIP archive from GitHub.
-3. **`FILTERING`**: Filtering out binary assets, images, vendor dependencies, and lockfiles, while persisting valid text files.
-4. **`CHUNKING`**: Language-specific AST/Tree-Sitter semantic chunking to preserve symbol contexts (class/function definitions, line numbers).
-5. **`INDEXING`**: Computing SHA-256 content hashes, deduplicating against existing vectors, generating Gemini embeddings, and persisting to Postgres `pgvector`.
-6. **`READY`**: Repository fully indexed and available for hybrid search and chat queries.
-7. **`FAILED`**: Ingestion encountered an unrecoverable error; error message captured and logged.
-
----
-
-## 3. Hybrid Retrieval & Reranking Architecture (RAG)
-
-CodeAtlas uses a state-of-the-art hybrid search pipeline combining **Dense Semantic Search**, **Sparse Lexical Search**, **Reciprocal Rank Fusion (RRF)**, and **Cross-Encoder Reranking**.
+CodeAtlas follows a decoupled client-server architecture consisting of a React Single-Page Application (SPA) frontend, an asynchronous FastAPI gateway backend, an ingestion pipeline, an intelligence retrieval pipeline, and a dual-tier persistence layer.
 
 ```mermaid
 flowchart TD
-    Query["User Query: 'Where is authentication middleware configured?'"] --> CacheCheck{"Check Semantic Cache<br/>(Cosine Sim >= 0.92)"}
-    
-    CacheCheck -->|Cache Hit| ReturnCached["Return Cached Generation Response"]
-    
-    CacheCheck -->|Cache Miss| QueryEmbedding["Generate Query Embedding (Gemini 768d)"]
-    
-    subgraph ParallelRetrieval ["Parallel Retrieval Stages"]
-        QueryEmbedding --> Dense["Dense Vector Search<br/>Top 20 candidates (pgvector <=> cosine)"]
-        Query --> Sparse["Sparse Lexical Search<br/>Top 20 candidates (tsvector / BM25 term frequency)"]
+    subgraph Client ["Frontend Layer (React 18 + Vite)"]
+        Dashboard["Dashboard Shell"]
+        RepoView["Repository Overview & Metrics"]
+        FileTree["File Explorer & Code Viewer"]
+        ChatEngine["Streaming Chat & Citations"]
     end
-    
-    Dense --> RRF["Reciprocal Rank Fusion (RRF)<br/>Score = Σ 1 / (60 + rank)<br/>Select Top 15 candidates"]
-    Sparse --> RRF
-    
-    RRF --> Reranker["Cross-Encoder Semantic Reranker<br/>Model: cross-encoder/ms-marco-MiniLM-L-6-v2<br/>Select Top 5 candidates"]
-    
-    Reranker --> FormattedEvidence["Structured JSON Evidence Formatter<br/>(filepath, start_line, end_line, symbol, code)"]
+
+    subgraph Gateway ["API Layer (FastAPI Gateway)"]
+        RepoRoutes["/api/repositories"]
+        FileRoutes["/api/repositories/{id}/tree & /files"]
+        ChatRoutes["/api/chat/sessions & /stream"]
+        QueryRoutes["/api/queries"]
+    end
+
+    subgraph IngestionEngine ["Repository Ingestion Pipeline"]
+        Acquisition["GitHub Client & Downloader"]
+        ArchiveExtract["Archive Extractor"]
+        Filter["File Filter & Language Classifier"]
+        AST["AST Syntax Chunker"]
+        Dedup["Content-Hash Deduplicator"]
+        EmbedGen["Gemini Embedder (768d)"]
+    end
+
+    subgraph RetrievalEngine ["Retrieval & Generation Pipeline"]
+        Preprocessor["Query Preprocessor"]
+        Cache["Semantic Cache"]
+        DenseSearch["Dense Vector Match (pgvector)"]
+        SparseSearch["Sparse Full-Text (BM25Okapi)"]
+        RRF["Reciprocal Rank Fusion (RRF)"]
+        Rerank["Cross-Encoder Reranker"]
+        LLMChain["Multi-Tier LLM Provider Chain"]
+        CitationVal["Citation & Line Validator"]
+    end
+
+    subgraph StorageLayer ["Persistence Layer"]
+        SupabaseDB[("PostgreSQL / Supabase + pgvector")]
+        BM25Mem[("Hot In-Memory BM25 Registry")]
+        StateFallback[("In-Memory State Fallback")]
+    end
+
+    Dashboard --> RepoRoutes
+    FileTree --> FileRoutes
+    ChatEngine --> ChatRoutes
+    Dashboard --> QueryRoutes
+
+    RepoRoutes --> IngestionEngine
+    FileRoutes --> StorageLayer
+    ChatRoutes --> RetrievalEngine
+    QueryRoutes --> RetrievalEngine
+
+    IngestionEngine --> StorageLayer
+    RetrievalEngine --> StorageLayer
 ```
-
-### Reciprocal Rank Fusion (RRF) Formula
-Candidates from dense and sparse retrieval stages are merged using the constant $k = 60$:
-
-$$\text{RRF\_Score}(d) = \sum_{m \in \{\text{dense}, \text{sparse}\}} \frac{1}{60 + \text{rank}_m(d)}$$
 
 ---
 
-## 4. Generation Pipeline & Streaming Protocol
+## 3. Technology Stack
+
+* **Frontend Client**: React 18, TypeScript, Vite, CSS custom properties, Lucide Icons, Highlight.js.
+* **Backend Framework**: Python 3.12, FastAPI, Uvicorn, Pydantic v2, HTTPX.
+* **Lexical Indexing**: Rank-BM25 (`BM25Okapi`) with code compound token expansion.
+* **Dense Vector Search**: PostgreSQL with `pgvector` extension via Supabase PostgREST and RPC functions.
+* **Embedding Model**: Google Gemini (`text-embedding-004`), 768 dimensions.
+* **Generation Providers**: Multi-tier fallback chain (Google Gemini 2.0 &rarr; Groq LLaMA 3.3 &rarr; Cerebras &rarr; OpenRouter).
+* **Reranking**: Sentence-Transformers Cross-Encoder (`ms-marco-MiniLM-L-6-v2`).
+* **Test Harness**: Pytest, AnyIO, HTTPX ASGI Transport.
+
+---
+
+## 4. Application Components
+
+### 4.1 Frontend
+The client application is organized into feature-driven modules under `frontend/src/features/`:
+* **Repositories**: Manages repository ingestion submissions, live status polling, and summary metrics.
+* **Chat**: Manages conversational message sessions, real-time Server-Sent Events (SSE) stream consumption, and interactive citation chips.
+* **Files**: Renders the hierarchical repository directory tree, file selection, and syntax-highlighted source code with active citation jump targets.
+* **Overview**: Summarizes repository committers, language distribution, processing duration, and indexing health.
+
+### 4.2 Backend
+The backend is structured into modular layers adhering to Single Responsibility:
+* **API (`app/api/`)**: Defines routers (`repositories`, `files`, `chat`, `queries`) and dependency injection providers.
+* **Services (`app/services/`)**: Orchestrates core business domain logic (`IngestionService`, `RepositoryService`, `FileService`, `ChatService`, `QueryService`).
+* **Ingestion (`app/ingestion/`)**: Implements deterministic, step-by-step ingestion stages (download &rarr; extract &rarr; filter &rarr; parse &rarr; chunk &rarr; deduplicate &rarr; index).
+* **Retrieval (`app/retrieval/`)**: Contains hybrid retrieval, tokenization, BM25 indexing, RRF fusion, and semantic caching.
+* **Generation (`app/generation/`)**: Contains prompt construction, provider fallback dispatch, and citation verification.
+* **Shared (`app/shared/`)**: Application configuration, rate limiters, structured logging, safe observability, and custom domain exceptions.
+
+### 4.3 Database
+PostgreSQL with the `pgvector` extension hosted on Supabase:
+* Manages relational repository state, code chunks, and metadata.
+* Executes vector cosine similarity searches and full-text searches via dedicated SQL stored procedures (`match_chunks`, `search_chunks`, `match_semantic_cache`).
+* Implements cascading foreign keys and row-level security.
+
+### 4.4 External Services
+* **GitHub API & Raw Content**: Fetches commit details, contributor lists, archive downloads, and live file contents.
+* **Gemini API**: Generates dense vector embeddings and primary conversational responses.
+* **Groq / Cerebras / OpenRouter**: Serves as automatic fallback LLM inference endpoints when upstream rate limits or quota thresholds are met.
+
+---
+
+## 5. Repository Ingestion Pipeline
+
+The ingestion pipeline transforms raw repository archives into searchable chunks via an asynchronous sequential pipeline:
+
+```mermaid
+flowchart LR
+    A["1. Acquisition<br/>(GitHub API)"] --> B["2. Extraction<br/>(Zip Archive)"]
+    B --> C["3. Filtering<br/>(Extensions/Size)"]
+    C --> D["4. AST Chunking<br/>(Tree-Sitter/Parser)"]
+    D --> E["5. Deduplication<br/>(Content Hash)"]
+    E --> F["6. Embedding<br/>(Gemini 768d)"]
+    F --> G["7. Storage<br/>(DB & Hot BM25)"]
+```
+
+### 5.1 Repository Acquisition
+The pipeline validates the repository URL, resolves the default branch, and retrieves commit metadata and top contributors via `GitHubClient`. Ingestion begins asynchronously upon returning an `HTTP 202 Accepted` response.
+
+### 5.2 Archive Extraction
+`ArchiveExtractor` downloads a compressed tarball or zipball from GitHub into an isolated temporary working directory. Streaming archive extraction minimizes memory overhead.
+
+### 5.3 File Filtering
+`FileFilter` walks the extracted tree and filters out binaries, lock files, minified assets, vendored directories (`node_modules/`, `.git/`, `dist/`, `venv/`), and files exceeding size thresholds (default 256 KB), preserving only pertinent source code and documentation.
+
+### 5.4 AST-Based Chunking
+`ASTChunker` parses source files into logical syntactical units. Rather than arbitrary character-count splitting, chunk boundaries align with classes, functions, and method signatures, preserving symbol context, imports, start lines, and end lines.
+
+### 5.5 Content Deduplication
+`ChunkDeduplicator` calculates a SHA-256 hash (`content_hash`) of each chunk's stripped content. It queries existing hashes in PostgreSQL to separate new chunks from identical chunks already indexed across previous ingestions or shared files, skipping redundant vector embedding generation.
+
+### 5.6 Embedding Generation
+`EmbeddingService` batches new chunk texts and generates 768-dimensional vector representations using Google Gemini `text-embedding-004`.
+
+### 5.7 Database Storage
+`ChunkIndexer` executes batch upserts into `chunks` and `chunk_metadata`, updates repository statistics (duration, chunks created, embeddings generated), transitions status to `ready`, and hydrates the hot in-memory `BM25Registry`. Temporary raw extraction directories are pruned immediately.
+
+---
+
+## 6. Retrieval Pipeline
+
+```mermaid
+flowchart TD
+    Query["User Query"] --> Pre["6.1 Query Preprocessor"]
+    Pre --> CacheCheck{"6.2 Semantic Cache Hit?"}
+    CacheCheck -- Yes --> CacheReturn["Return Cached Response"]
+    CacheCheck -- No --> ParallelSearch
+
+    subgraph ParallelSearch ["6.3 Hybrid Search"]
+        Dense["Dense Vector Search<br/>(PostgreSQL match_chunks)"]
+        Sparse["Sparse Lexical Search<br/>(In-Memory BM25 Registry)"]
+    end
+
+    Dense --> Fusion["6.4 Reciprocal Rank Fusion (RRF)"]
+    Sparse --> Fusion
+    Fusion --> Rerank["6.5 Cross-Encoder Reranker"]
+    Rerank --> Context["6.6 Top-K Context Selection"]
+    Context --> AnswerGen["7. Answer Generation"]
+```
+
+### 6.1 Query Preprocessing
+`QueryPreprocessor` cleans the incoming raw text, extracts programming keywords, and generates a query embedding vector via Gemini.
+
+### 6.2 Semantic Cache
+`SemanticCache` computes a query embedding cosine similarity check against previously answered questions stored in `semantic_cache`. Matches with similarity $\ge 0.92$ return immediately with $<50\text{ ms}$ latency, bypassing downstream retrieval and LLM inference.
+
+### 6.3 Hybrid Retrieval
+If no cache entry matches, `HybridRetriever` runs concurrent dual-path retrieval:
+1. **Dense Retrieval**: `DatabaseRepository.dense_search` calls `match_chunks` in PostgreSQL to fetch the top 20 nearest neighbors by cosine similarity.
+2. **Sparse Retrieval**: `BM25Registry.query` scores documents using tokenized $BM25Okapi$ across code tokens and sub-tokens.
+
+### 6.4 Reciprocal Rank Fusion
+`RRFFusion` merges the disparate score scales of dense and sparse results using rank-based weighting:
+$$RRF(d) = \sum_{m \in \{\text{dense}, \text{sparse}\}} \frac{w_m}{k + \text{rank}_m(d)}$$
+where $k=60$ dampens rank outliers.
+
+### 6.5 Reranking
+`CrossEncoderReranker` scores the top fused candidate chunks together with the query text using the `ms-marco-MiniLM-L-6-v2` cross-encoder. This captures cross-attention semantics between the user's intent and specific code statements.
+
+### 6.6 Context Selection
+The top $K$ reranked chunks (default $K=5$) are filtered and formatted for context assembly. If no chunks pass relevance thresholds, an empty-retrieval fast exit occurs immediately, preventing hallucination.
+
+---
+
+## 7. Answer Generation
+
+### 7.1 Context Construction
+`PromptBuilder` injects retrieved snippets into a strictly bounded system instruction. Each snippet is labeled with its index, relative filepath, line bounds, and symbol metadata. The model is explicitly constrained to rely exclusively on the provided code blocks.
+
+### 7.2 LLM Provider Fallback
+`LLMClientChain` executes an automated 4-tier provider failover:
+1. **Google Gemini** (`gemini-2.0-flash`)
+2. **Groq** (`llama-3.3-70b-versatile`)
+3. **Cerebras** (`llama3.1-70b`)
+4. **OpenRouter** (Unified multi-provider fallback)
+
+If the primary provider encounters HTTP 429 rate limits, quota exhaustion, or timeouts, the chain seamlessly fails over to the next provider within milliseconds.
+
+### 7.3 Citation Generation
+The prompt requires the LLM to ground assertions in explicit citation tokens: `[filepath:start_line-end_line]` or `[filepath:line]`.
+
+### 7.4 Response Validation
+`CitationValidator` parses generated citation tokens with regex and validates them against the actual line ranges of retrieved chunks. Citations pointing to non-existent files or fabricated lines are filtered out, leaving only genuine references.
+
+---
+
+## 8. Data Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as Frontend Client
-    participant Stream as FastAPI SSE Stream (/messages/stream)
-    participant Gen as GenerationService
-    participant RAG as RetrievalService
-    participant Mem as LangChain Memory
-    participant LLM as Provider Chain (Gemini / Groq / Cerebras / OpenRouter)
-    participant Val as Grounding & Citation Validator
+    actor User
+    participant Frontend as React Client
+    participant Backend as FastAPI
+    participant Retriever as Hybrid Retriever
+    participant LLM as LLM Provider
+    participant DB as Supabase / Memory
 
-    Client->>Stream: POST /api/chat/sessions/{id}/messages/stream {content: "..."}
-    Stream->>Gen: answer_stream(repo_id, session_id, query)
-    Gen->>RAG: retrieve(repo_id, query)
-    RAG-->>Gen: Top 5 Reranked Evidence Chunks
-    Gen->>Mem: load_history(session_id, current_query)
-    Mem-->>Gen: Summarized Conversation Buffer
-    Gen->>Gen: build_prompt(query, evidence, memory)
-    
-    Gen->>LLM: generate_stream(prompt)
+    User->>Frontend: Enter query in Chat
+    Frontend->>Backend: POST /api/chat/stream
+    Backend->>DB: Check readiness
+    Backend->>Retriever: Hybrid retrieve (Dense + BM25)
+    Retriever->>DB: Dense HNSW query
+    Retriever-->>Backend: Top candidate chunks
+    Backend->>LLM: Stream prompt with snippets
     loop Token Streaming
-        LLM-->>Gen: token chunk
-        Gen-->>Stream: yield {type: "token", content: token}
-        Stream-->>Client: data: {"type": "token", "content": token}
+        LLM-->>Backend: SSE delta token
+        Backend-->>Frontend: data: {"type": "token", "content": "..."}
+        Frontend-->>User: Render streaming markdown
     end
-    
-    Gen->>Val: validate(full_content, citations, evidence)
-    Val-->>Gen: ValidationResult (valid=True/False, citations=[...])
-    
-    Gen-->>Stream: yield {type: "done", message: {...}, citations: [...]}
-    Stream-->>Client: data: {"type": "done", "message": {...}}
-```
-
-### Multi-Provider Fallback Strategy
-If a provider encounters an HTTP error, quota exhaustion, or rate limit, `ProviderChain` automatically fails over in sequence:
-
-```
-1. Google Gemini 2.5 Flash (Primary)
-   └──► 2. Groq LLaMA 3.3 70B (Fast Fallback)
-        └──► 3. Cerebras LLaMA 3.3 70B (High-Throughput Fallback)
-             └──► 4. OpenRouter GPT-4o-mini (Universal Fallback)
+    Backend->>Backend: Validate line-level citations
+    Backend->>DB: Persist assistant message & citations
+    Backend-->>Frontend: data: {"type": "done", "message": {...}}
+    Frontend-->>User: Render verified citation chips
 ```
 
 ---
 
-## 5. Persistence Architecture
+## 9. Error Handling and Fallback Mechanisms
 
-CodeAtlas uses a dual-engine storage architecture:
-
-```mermaid
-classDiagram
-    class InMemoryStore {
-        +dict repositories
-        +dict repository_files
-        +dict repository_documents
-        +dict chunks
-        +dict semantic_cache
-        +dict sessions
-        +dict messages
-        +dense_search()
-        +sparse_search()
-        +get_semantic_cache()
-    }
-
-    class SupabasePersistence {
-        +httpx.AsyncClient client
-        +upsert_repository()
-        +list_repositories()
-        +upsert_chunks()
-        +dense_search()
-        +sparse_search()
-        +save_semantic_cache()
-        +get_semantic_cache()
-    }
-
-    InMemoryStore --> SupabasePersistence : Delegates durable calls when configured
-```
-
-### Database Entities & Schema Mapping
-- **`repos`**: Repository metadata, statistics, ingestion stage, branch, and configuration.
-- **`repository_files`**: Source file contents indexed by `(repo_id, path)`.
-- **`chunks`**: Content chunks with `vector(768)` embeddings and content hashes.
-- **`chunk_metadata`**: Symbol names, types, line ranges (`start_line`, `end_line`), and import statements.
-- **`chat_sessions`**: Conversation session records linked to repositories.
-- **`chat_messages`**: User and assistant messages, including verified citation metadata.
-- **`semantic_cache`**: Query embeddings and generation responses with similarity thresholding.
-- **`logs`**: Structured audit events with sensitive token redaction and execution latencies.
+* **Database Degradation**: `DatabaseConnection` and `ChatSessionManager` catch PostgreSQL/PostgREST connection failures gracefully, preserving state in an in-memory cache and logging warnings without interrupting live user requests.
+* **LLM Resilience**: `LLMClientChain` wraps network and status errors, failing over sequentially across 4 distinct providers.
+* **Empty Retrieval Guard**: When queries do not match indexed repository content, `ResponseGenerator` triggers an instant non-hallucinatory exit message, bypassing token generation costs.
+* **GitHub Rate Limiting**: `GitHubClient` detects HTTP 403 rate limits and surfaces friendly instructions for personal access token configuration.
 
 ---
 
-## 6. Security, Redaction, & Error Boundaries
+## 10. Architectural Decisions and Trade-offs
 
-- **Sensitive Data Redaction**: The [`logging_utils`](file:///d:/workspace/codeatlas/backend/app/logging_utils.py) subsystem automatically strips API keys, Authorization headers, Bearer tokens, and secrets from all logs and database event payloads.
-- **Global Error Boundary**: FastAPI global exception handlers catch unexpected runtime failures and return sanitized RFC 7807 compliant error payloads without exposing internal stack traces.
-- **Citation Guardrails**: Hallucinated file paths or invented line numbers are stripped by `CitationValidator` before citations are presented in the UI.
-
----
-
-## 7. Deterministic Observability & Tracing Architecture (LangSmith)
-
-CodeAtlas integrates LangSmith for end-to-end tracing across RAG retrieval, conversation memory summarization, multi-provider LLM calls, and background ingestion tasks.
-
-```mermaid
-flowchart TD
-    Req["FastAPI Request (/messages/stream, /retrieve)"] --> ConfigGen["create_runnable_config()<br/>• Fresh LangChainTracer per-request<br/>• Request-scoped tags & metadata<br/>• Redacted sensitive keys"]
-    
-    ConfigGen --> ChainExec["GenerationService / RetrievalService"]
-    
-    subgraph TracedPipeline ["LangChain Trace Tree"]
-        ChainExec --> Retrieval["RetrievalService.retrieve()<br/>(Dense + Sparse + RRF + Rerank)"]
-        ChainExec --> Memory["ConversationSummaryBufferMemory<br/>(aload_memory_variables)"]
-        ChainExec --> LLM["ProviderChain / LLM.generate_stream()"]
-    end
-    
-    subgraph BackgroundTasks ["Standalone Background Tasks"]
-        IngestTask["IngestionService.ingest_repository()"] --> SafeTrace["@safe_traceable(run_type='chain')"]
-        EvalTask["EvaluationService.generate_golden_dataset()"] --> SafeTrace
-    end
-    
-    TracedPipeline --> LangSmithCloud["LangSmith API / Cloud Dashboard"]
-    SafeTrace --> LangSmithCloud
-    
-    Lifespan["FastAPI Lifespan Shutdown"] --> Flush["flush_langsmith_traces()<br/>(wait_for_all_tracers)"]
-    Flush --> LangSmithCloud
-```
-
-### Key Architectural Pillars:
-1. **Trace Tree Integrity**: Avoids `@traceable` inside LangChain chains to prevent disconnected parent-child spans (`contextvars` vs `RunnableConfig`). Child runs inherit tracing context deterministically via `RunnableConfig` passing.
-2. **Multi-Tenant Isolation**: Never mutates global `os.environ` to attach request metadata. Per-request `RunnableConfig(callbacks=[LangChainTracer(project_name=...)], metadata={...}, tags=[...])` guarantees complete data boundary isolation between concurrent tenants.
-3. **Shutdown Trace Persistence**: Registers `flush_langsmith_traces()` (`wait_for_all_tracers()`) in the FastAPI lifespan shutdown handler to ensure in-flight traces are flushed before container termination.
-4. **Zero Latency SSE Streaming**: Token streaming in `answer_stream` yields tokens directly without per-token redaction or logging overhead; trace recording and sanitation are performed at the run boundary upon completion.
-5. **Standalone Task Decorators**: Standalone background workers (`ingestion`, `evaluation`) utilize `@safe_traceable` which safely activates when LangSmith is enabled and acts as a no-op passthrough when disabled.
-
+1. **AST Chunking vs. Fixed-Character Window**:
+   * *Decision*: Parse AST symbols rather than splitting every 500 characters.
+   * *Trade-off*: Slower initial parsing, but completely eliminates severed functions and fragmented syntax that break embeddings and citations.
+2. **Hybrid RRF (Dense + Sparse) vs. Dense Only**:
+   * *Decision*: Run parallel dense vector search alongside in-memory BM25Okapi.
+   * *Trade-off*: Memory consumption for BM25 corpus tokens in exchange for high-precision retrieval on exact symbol names, identifiers, and error strings that vector embeddings blur.
+3. **On-Demand Raw File Fetch vs. Full Database Source Duplication**:
+   * *Decision*: Retrieve full file contents on-demand from GitHub (with chunk reconstruction fallback) rather than storing full multi-megabyte source trees in PostgreSQL.
+   * *Trade-off*: Dependency on external GitHub availability, but prevents database bloat and ensures database storage stays compact.

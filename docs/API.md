@@ -1,312 +1,391 @@
-# CodeAtlas REST & SSE API Reference 📡
+# API Reference
 
-Complete specification for the **CodeAtlas API**. The API provides repository ingestion, file browsing, hybrid code retrieval, and real-time streaming AI conversation endpoints.
+## 1. API Overview
 
----
-
-## 🌐 General Information
-
-- **Base URL**: `http://localhost:8000` (development) or configured production host.
-- **Protocol**: HTTP/1.1 & HTTP/2
-- **Default Content Type**: `application/json`
-- **Streaming Content Type**: `text/event-stream` (Server-Sent Events)
-- **CORS**: Configurable via `CODE_ATLAS_CORS_ORIGINS` (defaults to `http://localhost:5173`).
+The CodeAtlas backend provides a RESTful interface alongside real-time Server-Sent Events (SSE) streaming. It manages repository acquisition, tree exploration, grounded question answering, and conversational chat sessions.
 
 ---
 
-## 📌 Status Code Conventions
+## 2. Base URL
 
-| Status Code | Meaning | Description |
-| :--- | :--- | :--- |
-| `200 OK` | Success | The request succeeded and returns the requested payload. |
-| `202 Accepted` | Accepted | The repository ingestion task was queued/accepted for processing. |
-| `400 Bad Request` | Client Error | The request payload violates syntax or structural constraints. |
-| `404 Not Found` | Not Found | The requested resource (repository, session, file) does not exist. |
-| `422 Unprocessable Entity` | Validation Error | Request parameters failed validation (e.g. invalid URL or missing fields). |
-| `500 Internal Server Error` | Server Error | An unhandled exception occurred within the application. |
-| `502 Bad Gateway` | Upstream Failure | Upstream AI provider or embedding service failed to respond. |
-| `503 Service Unavailable` | Storage Degraded | Database or Supabase persistence is temporarily unavailable. |
+* **Local Development**: `http://localhost:8000/api`
+* **Health Check**: `http://localhost:8000/health`
+* **Interactive Documentation (Swagger UI)**: `http://localhost:8000/docs`
+* **OpenAPI Specification**: `http://localhost:8000/openapi.json`
 
 ---
 
-## 📚 Endpoints Specification
+## 3. Authentication
+
+The API currently operates in a single-tenant developer configuration. Ingestion and query endpoints do not require authorization headers from client callers. Backend interactions with third-party providers (GitHub, Supabase, Google Gemini) utilize server-side environment tokens.
 
 ---
 
-### 1. Repository Management
+## 4. Common Conventions
 
-#### `POST /api/repositories`
-Registers a repository for background ingestion, chunking, and embedding.
+### 4.1 Request Format
+All request bodies must use standard JSON (`Content-Type: application/json`).
 
-- **Status Code**: `202 Accepted`
-- **Request Body**:
-  ```json
-  {
-    "mode": "url",
-    "url": "https://github.com/facebook/react",
-    "branch": "main"
+### 4.2 Response Format
+Standard responses return JSON. Streaming endpoints return Server-Sent Events (`Content-Type: text/event-stream`).
+
+### 4.3 HTTP Status Codes
+* `200 OK`: Request succeeded.
+* `201 Created`: Resource successfully created.
+* `202 Accepted`: Asynchronous task queued for processing.
+* `204 No Content`: Action completed with no response body.
+* `400 Bad Request`: Invalid parameters or malformed request.
+* `404 Not Found`: Repository, file, or session does not exist.
+* `409 Conflict`: Repository is currently undergoing ingestion.
+* `422 Unprocessable Content`: Pydantic validation failure.
+* `429 Too Many Requests`: Rate limit threshold exceeded.
+* `500 Internal Server Error`: Unhandled server exception.
+
+---
+
+## 5. Endpoints
+
+### 5.1 Health Check
+
+#### GET `/health`
+Returns the operational health and engine version.
+
+* **Parameters**: None.
+* **Success Response (200 OK)**:
+```json
+{
+  "status": "ok",
+  "version": "1.0.0"
+}
+```
+
+---
+
+### 5.2 Repository Management
+
+#### POST `/api/repositories`
+Queues a remote GitHub repository for multi-stage ingestion.
+
+* **Parameters**: None.
+* **Request Body**:
+```json
+{
+  "repository_url": "https://github.com/pallets/flask",
+  "branch": "main"
+}
+```
+* **Success Response (202 Accepted)**:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "flask",
+  "url": "https://github.com/pallets/flask",
+  "status": "queued",
+  "branch": "main",
+  "files": 0,
+  "folders": 0,
+  "contributors": [],
+  "processing": {
+    "files_total": 0,
+    "chunks_created": 0,
+    "embeddings_generated": 0,
+    "duration_ms": 0.0
   }
-  ```
-  *Alternative Manual Mode*:
-  ```json
+}
+```
+* **Errors**: `400 Bad Request`, `422 Unprocessable Content`.
+
+#### GET `/api/repositories`
+Lists all repositories currently tracked in the system.
+
+* **Parameters**: None.
+* **Success Response (200 OK)**:
+```json
+[
   {
-    "mode": "manual",
-    "username": "facebook",
-    "name": "react",
-    "branch": "main"
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "flask",
+    "url": "https://github.com/pallets/flask",
+    "status": "ready",
+    "primary_language": "Python",
+    "stars": 67000,
+    "forks": 15000
   }
-  ```
-- **Response Model (`Repository`)**:
-  ```json
-  {
-    "id": "7a3556ee-5c21-4f01-948f-3765e998a4da",
-    "name": "react",
-    "full_name": "facebook/react",
-    "description": "The library for web and native user interfaces.",
-    "owner": "facebook",
-    "branch": "main",
-    "language": "JavaScript",
-    "url": "https://github.com/facebook/react",
-    "stats": {
-      "files": 0,
-      "folders": 0,
-      "contributors": 0,
-      "size_kb": 125000,
-      "stars": 230000,
-      "forks": 46000,
-      "open_issues": 850,
-      "open_pull_requests": 240
-    },
-    "contributors": [],
-    "repository_metadata": {
-      "visibility": "public",
-      "languages": { "JavaScript": 0.85, "TypeScript": 0.15 },
-      "topics": ["declarative", "frontend", "javascript", "react", "ui"],
-      "license_name": "MIT"
-    },
-    "processing": {
-      "chunks_created": null,
-      "embeddings_generated": null,
-      "duration_ms": null,
-      "last_indexed_at": null
-    },
-    "metadata_ready": false,
-    "files_ready": false,
-    "status": "downloading",
-    "error": null,
-    "created_at": "2026-09-19T18:00:00.000000Z",
-    "updated_at": "2026-09-19T18:00:01.000000Z"
+]
+```
+
+---
+
+### 5.3 Repository Information
+
+#### GET `/api/repositories/{repository_id}`
+Retrieves detailed status, contributor statistics, and processing metadata.
+
+* **Parameters**:
+  * `repository_id` (*path*, UUID, required): Repository ID.
+* **Success Response (200 OK)**:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "flask",
+  "url": "https://github.com/pallets/flask",
+  "status": "ready",
+  "owner": "pallets",
+  "default_branch": "main",
+  "primary_language": "Python",
+  "files": 84,
+  "folders": 12,
+  "contributors": [
+    {
+      "username": "mitsuhiko",
+      "commits": 1420,
+      "contributions": 1420,
+      "avatar_url": "https://avatars.githubusercontent.com/u/1?v=4"
+    }
+  ],
+  "processing": {
+    "files_total": 84,
+    "chunks_created": 312,
+    "embeddings_generated": 312,
+    "duration_ms": 14250.5,
+    "last_indexed_at": "2026-11-01T00:00:00Z"
   }
-  ```
+}
+```
+* **Errors**: `404 Not Found`.
 
 ---
 
-#### `GET /api/repositories`
-Lists all registered repositories.
+### 5.4 File Operations
 
-- **Status Code**: `200 OK`
-- **Response**: `list[Repository]`
+#### GET `/api/repositories/{repository_id}/tree`
+Returns the complete nested directory and file tree for an indexed repository.
+
+* **Parameters**:
+  * `repository_id` (*path*, UUID, required): Repository ID.
+* **Success Response (200 OK)**:
+```json
+{
+  "tree": [
+    {
+      "name": "src",
+      "path": "src",
+      "type": "directory",
+      "children": [
+        {
+          "name": "flask",
+          "path": "src/flask",
+          "type": "directory",
+          "children": [
+            {
+              "name": "app.py",
+              "path": "src/flask/app.py",
+              "type": "file"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "README.md",
+      "path": "README.md",
+      "type": "file"
+    }
+  ]
+}
+```
+* **Errors**: `404 Not Found`, `500 Internal Server Error`.
+
+#### GET `/api/repositories/{repository_id}/files/{file_path}`
+Fetches the raw text content and syntax language for a specific file.
+
+* **Parameters**:
+  * `repository_id` (*path*, UUID, required): Repository ID.
+  * `file_path` (*path*, string, required): Relative path within the repository.
+* **Success Response (200 OK)**:
+```json
+{
+  "content": "class Flask:\n    def __init__(self, import_name):\n        self.import_name = import_name\n",
+  "language": "python",
+  "size": 78,
+  "encoding": "utf-8"
+}
+```
+* **Errors**: `404 Not Found`.
 
 ---
 
-#### `GET /api/repositories/{repository_id}`
-Retrieves details, ingestion status, and processing metrics for a specific repository.
+### 5.5 Chat and Query Operations
 
-- **Status Code**: `200 OK`
-- **Path Parameters**:
-  - `repository_id` (`UUID`, required): Unique repository identifier.
-- **Response**: `Repository` object.
+#### POST `/api/queries`
+Executes an end-to-end question answering pipeline and returns a full response with validated citations.
 
----
+* **Request Body**:
+```json
+{
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+  "query": "Where is the Flask application class defined?",
+  "options": {
+    "top_k": 5,
+    "use_cache": true,
+    "similarity_threshold": 0.92
+  }
+}
+```
+* **Success Response (200 OK)**:
+```json
+{
+  "answer": "The Flask application class is defined in `src/flask/app.py:100-150`.",
+  "citations": [
+    {
+      "filepath": "src/flask/app.py",
+      "start_line": 100,
+      "end_line": 150,
+      "symbol": "Flask",
+      "confidence": 1.0,
+      "snippet": "class Flask(Scaffold):"
+    }
+  ],
+  "provider": "gemini",
+  "model": "gemini-2.0-flash",
+  "cache_hit": false,
+  "latency_ms": 842.1,
+  "retrieved_chunks_count": 5
+}
+```
+* **Errors**: `404 Not Found`, `409 Conflict` (repository still indexing).
 
-### 2. File Explorer & Source Code
+#### GET `/api/chat/sessions`
+Lists conversation sessions for a repository.
 
-#### `GET /api/repositories/{repository_id}/tree`
-Returns the hierarchical directory and file tree of an ingested repository.
-
-- **Status Code**: `200 OK`
-- **Path Parameters**:
-  - `repository_id` (`UUID`, required)
-- **Response Model (`FileTreeResponse`)**:
-  ```json
+* **Parameters**:
+  * `repository_id` (*query*, string, optional): Scoped repository ID.
+* **Success Response (200 OK)**:
+```json
+[
   {
-    "tree": [
+    "id": "c1f71a9e-87a4-44b2-a4a3-5a02e6093d8b",
+    "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+    "created_at": "2026-11-01T01:00:00Z",
+    "updated_at": "2026-11-01T01:05:00Z"
+  }
+]
+```
+
+#### POST `/api/chat/sessions`
+Initializes a new persistent conversation session.
+
+* **Request Body** *(Optional)*:
+```json
+{
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+* **Success Response (201 Created)**:
+```json
+{
+  "id": "c1f71a9e-87a4-44b2-a4a3-5a02e6093d8b",
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+  "created_at": "2026-11-01T01:00:00Z",
+  "updated_at": "2026-11-01T01:00:00Z"
+}
+```
+
+#### GET `/api/chat/sessions/{session_id}/messages`
+Retrieves the historical conversation thread for a session.
+
+* **Parameters**:
+  * `session_id` (*path*, string, required): Session ID.
+* **Success Response (200 OK)**:
+```json
+[
+  {
+    "id": "msg-01",
+    "role": "user",
+    "content": "Where is the Flask class?",
+    "created_at": "2026-11-01T01:01:00Z"
+  },
+  {
+    "id": "msg-02",
+    "role": "assistant",
+    "content": "The Flask class is located in src/flask/app.py [src/flask/app.py:100-150].",
+    "citations": [
       {
-        "name": "src",
-        "path": "src",
-        "type": "directory",
-        "size": null,
-        "children": [
-          {
-            "name": "App.tsx",
-            "path": "src/App.tsx",
-            "type": "file",
-            "size": 1824,
-            "children": null
-          }
-        ]
-      },
-      {
-        "name": "package.json",
-        "path": "package.json",
-        "type": "file",
-        "size": 540,
-        "children": null
+        "filepath": "src/flask/app.py",
+        "start_line": 100,
+        "end_line": 150
       }
-    ]
+    ],
+    "created_at": "2026-11-01T01:01:02Z"
   }
-  ```
+]
+```
+
+#### POST `/api/chat/stream`
+Streams generated answers token-by-token via Server-Sent Events (SSE).
+
+* **Request Body**:
+```json
+{
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+  "content": "Explain the request context handling.",
+  "session_id": "c1f71a9e-87a4-44b2-a4a3-5a02e6093d8b"
+}
+```
+* **Success Response (200 OK, `text/event-stream`)**:
+```
+data: {"type": "token", "content": "The "}
+
+data: {"type": "token", "content": "request "}
+
+data: {"type": "token", "content": "context "}
+
+data: {"type": "done", "message": {"id": "msg-03", "role": "assistant", "content": "The request context...", "citations": [{"filepath": "src/flask/ctx.py", "start_line": 50, "end_line": 80}]}}
+```
+
+#### DELETE `/api/chat/sessions`
+Deletes all conversation sessions and associated messages for a repository.
+
+* **Parameters**:
+  * `repository_id` (*query*, string, required): Target repository.
+* **Success Response (204 No Content)**.
 
 ---
 
-#### `GET /api/repositories/{repository_id}/files/{file_path}`
-Retrieves raw file contents and metadata for source viewer rendering.
+## 6. Request and Response Examples
 
-- **Status Code**: `200 OK`
-- **Path Parameters**:
-  - `repository_id` (`UUID`, required)
-  - `file_path` (`string`, required, captures full relative path)
-- **Response Model (`FileContentResponse`)**:
-  ```json
-  {
-    "content": "import React from 'react';\n\nexport function App() { ... }",
-    "language": "tsx",
-    "size": 1824,
-    "encoding": "utf-8"
-  }
-  ```
+### Submitting a Question and Receiving Structured Citations
+```bash
+curl -X POST "http://localhost:8000/api/queries" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+       "query": "How is routing handled?",
+       "options": {"top_k": 3}
+     }'
+```
 
 ---
 
-### 3. Hybrid Code Search & Retrieval
+## 7. Error Responses
 
-#### `POST /api/repositories/{repository_id}/retrieve`
-Direct retrieval endpoint for testing hybrid dense/sparse search and cross-encoder reranking.
-
-- **Status Code**: `200 OK`
-- **Request Body**:
-  ```json
-  {
-    "query": "Where is the authentication middleware implemented?"
-  }
-  ```
-- **Response**:
-  ```json
-  {
-    "cache_hit": false,
-    "latency_ms": {
-      "dense": 42.1,
-      "sparse": 15.3,
-      "rrf": 1.2,
-      "rerank": 88.4,
-      "total": 147.0
-    },
-    "results": [
-      {
-        "chunk_id": "c1f7b889-1033-4f9e-a612-4211de41209b",
-        "repo_id": "7a3556ee-5c21-4f01-948f-3765e998a4da",
-        "filepath": "src/middleware/auth.py",
-        "language": "python",
-        "symbol": "verify_token",
-        "symbol_type": "function",
-        "start_line": 24,
-        "end_line": 48,
-        "content": "async def verify_token(req: Request) -> User: ...",
-        "reranker_score": 0.9412,
-        "reranker_rank": 1
-      }
-    ]
-  }
-  ```
+Error payloads return standard JSON containing detail explanations:
+```json
+{
+  "detail": "Repository '550e8400-e29b-41d4-a716-446655440000' is still indexing (status: chunking). Please wait."
+}
+```
 
 ---
 
-### 4. Conversational Chat & Streaming
+## 8. Rate Limiting and Retry Behavior
 
-#### `POST /api/chat/sessions`
-Creates a new conversation session for a repository.
-
-- **Query Parameters**:
-  - `repositoryId` (`UUID`, required)
-- **Response Model (`ChatSession`)**:
-  ```json
-  {
-    "id": "e4a2d892-2b63-479c-bfa8-69255a5b1c92",
-    "repository_id": "7a3556ee-5c21-4f01-948f-3765e998a4da",
-    "created_at": "2026-09-19T18:10:00.000000Z",
-    "updated_at": "2026-09-19T18:10:00.000000Z"
-  }
-  ```
+* **Sliding Window Rate Limiter**: The backend implements an in-memory sliding window rate limiter (`SlidingWindowRateLimiter`) capping high-cost concurrent ingestion jobs.
+* **Provider Retry**: The LLM client automatically retries transient HTTP 5xx errors and immediately falls over to secondary providers (Groq &rarr; Cerebras &rarr; OpenRouter) on HTTP 429 rate limit errors.
 
 ---
 
-#### `GET /api/chat/sessions`
-Lists all active chat sessions for a repository.
+## 9. API Documentation Tools
 
-- **Query Parameters**:
-  - `repositoryId` (`UUID`, required)
-- **Response**: `list[ChatSession]`
-
----
-
-#### `GET /api/chat/sessions/{session_id}/messages`
-Retrieves message history for a given session.
-
-- **Path Parameters**:
-  - `session_id` (`UUID`, required)
-- **Response**: `list[ChatMessage]`
-
----
-
-#### `POST /api/chat/sessions/{session_id}/messages/stream` 🔥
-**Primary Real-Time Streaming Endpoint** utilizing Server-Sent Events (SSE).
-
-- **Path Parameters**:
-  - `session_id` (`UUID`, required)
-- **Request Body**:
-  ```json
-  {
-    "content": "How does the caching mechanism work in this project?"
-  }
-  ```
-- **Response Headers**:
-  ```http
-  Content-Type: text/event-stream
-  Cache-Control: no-cache
-  Connection: keep-alive
-  ```
-
-- **SSE Stream Protocol**:
-  1. **Token Event**: Emitted continuously as new tokens arrive from the LLM.
-     ```
-     data: {"type": "token", "content": "The "}
-     data: {"type": "token", "content": "caching "}
-     data: {"type": "token", "content": "system "}
-     ```
-  2. **Done Event**: Emitted upon completion with full message payload and validated citations.
-     ```
-     data: {"type": "done", "message": {"id": "uuid", "role": "assistant", "content": "...", "citations": [{"file": "src/cache.ts", "line_start": 12, "line_end": 45, "symbol": "MemoryCache"}], "created_at": "2026-09-19T18:12:00Z"}}
-     ```
-  3. **Error Event**: Emitted if generation fails upstream.
-     ```
-     data: {"type": "error", "error": "All generation providers failed."}
-     ```
-
----
-
-#### `DELETE /api/chat/sessions`
-Deletes all chat sessions and messages associated with a repository.
-
-- **Query Parameters**:
-  - `repositoryId` (`UUID`, required)
-- **Response**: `{"deleted": true}`
-
----
-
-### 5. Health & Monitoring
-
-#### `GET /health`
-Liveness and health check endpoint.
-
-- **Status Code**: `200 OK`
-- **Response**: `{"status": "ok"}`
+* **Swagger UI**: Interactive playground accessible at `http://localhost:8000/docs`.
+* **ReDoc**: Static API specification accessible at `http://localhost:8000/redoc`.
