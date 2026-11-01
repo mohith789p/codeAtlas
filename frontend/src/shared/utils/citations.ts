@@ -29,8 +29,10 @@ export function stripCitationMetadata(content: string, citations: Citation[] = [
     ];
   });
 
-  // Generic bracketed citation pattern: e.g. [src/app.py:10-20], [README.md]
-  const genericCitation = '\\[[ \\t]*[a-zA-Z0-9_\\-./\\\\]+(?:[:#]L?\\d+(?:[-–]L?\\d+)?)?[ \\t]*\\]';
+  // Generic bracketed citation pattern supporting single or comma/semicolon-separated citations:
+  // e.g. [README.md:37, main.py:14-16], [src/app.py:10-20], [`README.md`]
+  const item = '\\x60?[a-zA-Z0-9_\\-./\\\\]+(?:[:#]L?\\d+(?:[-–]L?\\d+)?)?(?:[ \\t]+\\([A-Za-z0-9_.]+\\))?\\x60?';
+  const genericCitation = `\\[[ \\t]*${item}(?:[ \\t]*[,;][ \\t]*${item})*[ \\t]*\\]`;
   // Empty brackets left behind: [], [ ], [, ], etc.
   const emptyBrackets = '\\[[ \\t,;]*\\]';
 

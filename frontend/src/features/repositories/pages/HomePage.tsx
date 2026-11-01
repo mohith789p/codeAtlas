@@ -1,259 +1,87 @@
 import React, { useState, useEffect, useId, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Link2, User, AlertCircle, ShieldCheck } from 'lucide-react';
-import { Input } from '../../../shared/components/ui/Input';
-import { Button } from '../../../shared/components/ui/Button';
+import { ShieldCheck } from 'lucide-react';
 import { Spinner } from '../../../shared/components/ui/States';
 import { repositoriesApi } from '../api/repositories';
-import type { IngestPayload } from '../types';
 import { ApiError } from '../../../services/api/client';
+import { IngestForm } from '../components/IngestForm';
+import { TabMode } from '../components/TabSwitcher';
+import { RecentRepos } from '../components/RecentRepos';
 import './HomePage.css';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type TabMode = 'url' | 'manual';
-
-interface UrlFields { url: string; branch: string }
-interface ManualFields { username: string; name: string; branch: string }
-
-interface UrlErrors { url?: string }
-interface ManualErrors { username?: string; name?: string }
-
-// ─── Validation ──────────────────────────────────────────────────────────────
-
-function validateUrl(f: UrlFields): UrlErrors {
-  const errors: UrlErrors = {};
-  if (!f.url.trim()) {
-    errors.url = 'Repository URL is required.';
-  } else if (!/^https?:\/\/.+/.test(f.url.trim())) {
-    errors.url = 'Please enter a valid URL starting with https://';
-  }
-  return errors;
-}
-
-function validateManual(f: ManualFields): ManualErrors {
-  const errors: ManualErrors = {};
-  if (!f.username.trim()) errors.username = 'username is required.';
-  if (!f.name.trim()) errors.name = 'Repository name is required.';
-  return errors;
-}
-
-// ─── Tab Switcher ─────────────────────────────────────────────────────────────
-
-interface TabSwitcherProps {
-  mode: TabMode;
-  onChange: (mode: TabMode) => void;
-}
-
-const TabSwitcher: React.FC<TabSwitcherProps> = ({ mode, onChange }) => {
-  const id = useId();
-
-  return (
-    <div
-      className="tab-switcher"
-      role="tablist"
-      aria-label="Input method"
-    >
-      <button
-        id={`${id}-tab-url`}
-        role="tab"
-        aria-selected={mode === 'url'}
-        aria-controls={`${id}-panel`}
-        className={['tab-btn', mode === 'url' ? 'tab-btn-active' : ''].filter(Boolean).join(' ')}
-        onClick={() => onChange('url')}
-        type="button"
-      >
-        <span className="tab-btn-icon" aria-hidden="true">
-          <Link2 size={14} strokeWidth={2} />
-        </span>
-        URL
-      </button>
-
-      <button
-        id={`${id}-tab-manual`}
-        role="tab"
-        aria-selected={mode === 'manual'}
-        aria-controls={`${id}-panel`}
-        className={['tab-btn', mode === 'manual' ? 'tab-btn-active' : ''].filter(Boolean).join(' ')}
-        onClick={() => onChange('manual')}
-        type="button"
-      >
-        <span className="tab-btn-icon" aria-hidden="true">
-          <User size={14} strokeWidth={2} />
-        </span>
-        Username
-      </button>
-    </div>
-  );
-};
-
-// ─── Home Page ────────────────────────────────────────────────────────────────
-
-type PageState = 'form' | 'loading' | 'error';
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const panelId = useId();
+  const firstFieldRef = useRef<HTMLInputElement>(null);
 
-  // ── Tab mode
   const [mode, setMode] = useState<TabMode>('url');
+  const [urlFields, setUrlFields] = useState({ url: '', branch: '' });
+  const [manualFields, setManualFields] = useState({ username: '', name: '', branch: '' });
+  const [urlTouched, setUrlTouched] = useState<{ url?: boolean; branch?: boolean }>({});
+  const [manualTouched, setManualTouched] = useState<{ username?: boolean; name?: boolean; branch?: boolean }>({});
+  const [pageState, setPageState] = useState<'form' | 'loading' | 'error'>('form');
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // ── Form values
-  const [urlFields, setUrlFields] = useState<UrlFields>({ url: '', branch: '' });
-  const [manualFields, setManualFields] = useState<ManualFields>({ username: '', name: '', branch: '' });
-
-  // Pre-fill from query parameters (refactored from IngestionPage)
   useEffect(() => {
-    const urlParam = searchParams.get('url');
-    const branchParam = searchParams.get('branch');
-    const usernameParam = searchParams.get('username') || searchParams.get('owner');
-    const nameParam = searchParams.get('name') || searchParams.get('repo');
-    const modeParam = searchParams.get('mode');
-
-    if (urlParam) {
-      setUrlFields({ url: urlParam, branch: branchParam || '' });
+    const url = searchParams.get('url');
+    const branch = searchParams.get('branch') || '';
+    const user = searchParams.get('username') || searchParams.get('owner');
+    const name = searchParams.get('name') || searchParams.get('repo');
+    if (url) {
+      setUrlFields({ url, branch });
       setMode('url');
-    } else if (usernameParam || nameParam) {
-      setManualFields({
-        username: usernameParam || '',
-        name: nameParam || '',
-        branch: branchParam || '',
-      });
-      setMode('manual');
-    } else if (modeParam === 'manual') {
+    } else if (user || name) {
+      setManualFields({ username: user || '', name: name || '', branch });
       setMode('manual');
     }
   }, [searchParams]);
 
-  // ── Touched tracking (reset on tab switch)
-  const [urlTouched, setUrlTouched] = useState<Partial<Record<keyof UrlFields, boolean>>>({});
-  const [manualTouched, setManualTouched] = useState<Partial<Record<keyof ManualFields, boolean>>>({});
-
-  // ── Page state
-  const [pageState, setPageState] = useState<PageState>('form');
-  const [errorMsg, setErrorMsg] = useState('');
-
-  // ── First-field ref for focus-on-tab-switch
-  const firstFieldRef = useRef<HTMLInputElement>(null);
-
-  // Validation derived values
-  const urlErrors = validateUrl(urlFields);
-  const manualErrors = validateManual(manualFields);
-  const isValid = mode === 'url'
-    ? Object.keys(urlErrors).length === 0
-    : Object.keys(manualErrors).length === 0;
-
-  // Auto-fill username from URL (quality-of-life, Tab 1 → Tab 2 handoff)
-  useEffect(() => {
-    if (!urlFields.url) return;
-    try {
-      const u = new URL(urlFields.url);
-      const segs = u.pathname.replace(/^\//, '').split('/');
-      if (segs.length >= 2) {
-        setManualFields(prev => ({
-          ...prev,
-          username: prev.username || segs[0],
-          name: prev.name || segs[1].replace(/\.git$/, ''),
-        }));
-      }
-    } catch { /* not a full URL yet */ }
-  }, [urlFields.url]);
-
-  // Reset error + focus first field when switching tabs
-  const handleModeChange = (next: TabMode) => {
-    setMode(next);
-    setPageState('form');
-    setErrorMsg('');
-    setTimeout(() => firstFieldRef.current?.focus(), 50);
+  const urlErrors = !urlFields.url.trim()
+    ? { url: 'Repository URL is required.' }
+    : !/^https?:\/\/.+/.test(urlFields.url.trim())
+    ? { url: 'Please enter a valid URL starting with https://' }
+    : {};
+  const manualErrors = {
+    ...(!manualFields.username.trim() ? { username: 'Username is required.' } : {}),
+    ...(!manualFields.name.trim() ? { name: 'Repository name is required.' } : {}),
   };
+  const isValid = mode === 'url' ? Object.keys(urlErrors).length === 0 : Object.keys(manualErrors).length === 0;
 
-  // ── Field change helpers
-  const setUrl = (field: keyof UrlFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setUrlFields(v => ({ ...v, [field]: e.target.value }));
-  const setManual = (field: keyof ManualFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setManualFields(v => ({ ...v, [field]: e.target.value }));
-
-  const blurUrl = (field: keyof UrlFields) => () => setUrlTouched(t => ({ ...t, [field]: true }));
-  const blurManual = (field: keyof ManualFields) => () => setManualTouched(t => ({ ...t, [field]: true }));
-
-  // ── Submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Show all errors
-    if (mode === 'url') {
-      setUrlTouched({ url: true, branch: true });
-    } else {
-      setManualTouched({ username: true, name: true, branch: true });
-    }
+    if (mode === 'url') setUrlTouched({ url: true });
+    else setManualTouched({ username: true, name: true });
     if (!isValid) return;
 
     setPageState('loading');
     setErrorMsg('');
-
-    const payload: IngestPayload = mode === 'url'
-      ? {
-        mode: 'url',
-        url: urlFields.url.trim(),
-        ...(urlFields.branch.trim() ? { branch: urlFields.branch.trim() } : {}),
-      }
-      : {
-        mode: 'manual',
-        username: manualFields.username.trim(),
-        name: manualFields.name.trim(),
-        ...(manualFields.branch.trim() ? { branch: manualFields.branch.trim() } : {}),
-      };
+    const payload = mode === 'url'
+      ? { mode: 'url' as const, url: urlFields.url.trim(), ...(urlFields.branch.trim() ? { branch: urlFields.branch.trim() } : {}) }
+      : { mode: 'manual' as const, username: manualFields.username.trim(), name: manualFields.name.trim(), ...(manualFields.branch.trim() ? { branch: manualFields.branch.trim() } : {}) };
 
     try {
       const repo = await repositoriesApi.ingest(payload);
+      try {
+        const stored = JSON.parse(localStorage.getItem('codeatlas:recent_repos') || '[]');
+        const updated = [{ id: repo.id, name: repo.name, owner: repo.owner, branch: repo.branch }, ...stored.filter((r: any) => r.id !== repo.id)].slice(0, 5);
+        localStorage.setItem('codeatlas:recent_repos', JSON.stringify(updated));
+      } catch { /* ignore */ }
       navigate(`/dashboard/${repo.id}/overview`);
-    } catch (err) {
-      console.error('[HomePage] Failed to link repository:', err, { payload });
-      let friendlyMessage = 'Unable to link the repository. Please check your details and try again.';
-      if (err instanceof ApiError) {
-        if (err.status === 404) {
-          friendlyMessage = 'Repository not found. Please verify the repository exists and is publicly accessible.';
-        } else if (err.status === 401 || err.status === 403) {
-          friendlyMessage = 'Access denied. Please ensure the repository is public and accessible.';
-        } else if (err.status === 400 || err.status === 422) {
-          friendlyMessage = err.message && !/^HTTP \d+/i.test(err.message) && err.message !== 'Internal Server Error'
-            ? err.message
-            : 'Invalid repository details. Please check the inputs and try again.';
-        } else if (err.status >= 500) {
-          friendlyMessage = 'The server encountered an issue while linking the repository. Please try again shortly.';
-        } else if (err.message && !/^HTTP \d+/i.test(err.message) && err.message !== 'Internal Server Error') {
-          friendlyMessage = err.message;
-        }
-      } else if (err instanceof Error) {
-        const lower = err.message.toLowerCase();
-        if (lower.includes('failed to fetch') || lower.includes('network')) {
-          friendlyMessage = 'Unable to reach the server. Please check your network connection and try again.';
-        } else if (err.message && !/^HTTP \d+/i.test(err.message) && err.message !== 'Internal Server Error') {
-          friendlyMessage = err.message;
-        }
-      }
-      setErrorMsg(friendlyMessage);
+    } catch (err: any) {
+      setErrorMsg(err instanceof ApiError ? err.message : 'Unable to link repository. Please verify details.');
       setPageState('error');
     }
   };
 
-  // ── Loading state (replaces card body)
   if (pageState === 'loading') {
     return (
       <main className="home" id="main-content">
-        <div className="home-brand" aria-hidden="true">
-          <img src="/favicon.svg" alt="CodeAtlas logo" className="home-brand-logo" />
-          <span className="home-brand-name">CodeAtlas</span>
-        </div>
-
         <div className="home-card">
-          <div className="home-loading" role="status" aria-live="polite">
-            <Spinner size={32} label="Linking repository…" />
-            <p className="home-loading-label">Linking repository…</p>
-            <p className="home-loading-sublabel">
-              This may take a moment while CodeAtlas processes your repository.
-            </p>
+          <div className="home-loading" role="status">
+            <Spinner size={28} label="Linking repository…" />
+            <p className="home-loading-label">Connecting Repository…</p>
+            <p className="home-loading-sublabel">Parsing structure, branches, and dependencies.</p>
           </div>
         </div>
       </main>
@@ -262,135 +90,32 @@ export const HomePage: React.FC = () => {
 
   return (
     <main className="home" id="main-content">
-      {/* Brand */}
-      <div className="home-brand" aria-hidden="true">
-        <img src="/favicon.svg" alt="CodeAtlas logo" className="home-brand-logo" />
+      <div className="home-brand">
+        <img src="/favicon.svg" alt="CodeAtlas" className="home-brand-logo" />
         <span className="home-brand-name">CodeAtlas</span>
       </div>
-
-      {/* Headline */}
       <div className="home-headline-block">
-        <h1 className="home-headline">
-          Understand your <span className="home-headline-gradient">codebase.</span>
-        </h1>
-        <p className="home-supporting">
-          Explore files, discover architecture, and ask questions
-        </p>
+        <h1 className="home-headline">Codebase <span className="home-headline-accent">Intelligence</span></h1>
+        <p className="home-supporting">Analyze architecture, inspect file trees, and interrogate dependencies.</p>
       </div>
 
-      {/* Linking card */}
-      <div className="home-card">
-        {/* Tab switcher */}
-        <TabSwitcher mode={mode} onChange={handleModeChange} />
+      <IngestForm
+        id={panelId}
+        mode={mode}
+        onModeChange={(m) => { setMode(m); setPageState('form'); setErrorMsg(''); setTimeout(() => firstFieldRef.current?.focus(), 50); }}
+        urlFields={urlFields} setUrlFields={setUrlFields}
+        manualFields={manualFields} setManualFields={setManualFields}
+        onSubmit={handleSubmit} firstFieldRef={firstFieldRef}
+        urlTouched={urlTouched} setUrlTouched={setUrlTouched}
+        manualTouched={manualTouched} setManualTouched={setManualTouched}
+        urlErrors={urlErrors} manualErrors={manualErrors} errorMsg={errorMsg}
+      />
 
-        {/* Form */}
-        <form
-          id={panelId}
-          role="tabpanel"
-          className="home-form"
-          onSubmit={handleSubmit}
-          noValidate
-          aria-label={
-            mode === 'url'
-              ? 'Link by repository URL'
-              : 'Link by repository name'
-          }
-        >
-          {/* Tab 1 — Repository URL */}
-          {mode === 'url' && (
-            <div className="home-form-fields" key="url-fields">
-              <Input
-                ref={firstFieldRef}
-                label="Repository URL"
-                id="home-url"
-                type="url"
-                placeholder="https://github.com/username/reponame"
-                value={urlFields.url}
-                onChange={setUrl('url')}
-                onBlur={blurUrl('url')}
-                error={urlTouched.url ? urlErrors.url : undefined}
-                autoComplete="url"
-                autoFocus
-              />
-              <Input
-                label="Branch"
-                id="home-url-branch"
-                type="text"
-                placeholder="e.g. main"
-                value={urlFields.branch}
-                onChange={setUrl('branch')}
-                optional
-              />
-            </div>
-          )}
+      <RecentRepos onSelect={(r) => navigate(`/dashboard/${r.id}/overview`)} />
 
-          {/* Tab 2 — Repository */}
-          {mode === 'manual' && (
-            <div className="home-form-fields" key="manual-fields">
-              <div className="home-form-grid">
-                <Input
-                  ref={firstFieldRef}
-                  label="Username "
-                  id="home-username"
-                  type="text"
-                  placeholder="e.g. manidweep1306"
-                  value={manualFields.username}
-                  onChange={setManual('username')}
-                  onBlur={blurManual('username')}
-                  error={manualTouched.username ? manualErrors.username : undefined}
-                  autoComplete="username"
-                  autoFocus
-                />
-                <Input
-                  label="Repository"
-                  id="home-repo-name"
-                  type="text"
-                  placeholder="e.g. TalkToDB"
-                  value={manualFields.name}
-                  onChange={setManual('name')}
-                  onBlur={blurManual('name')}
-                  error={manualTouched.name ? manualErrors.name : undefined}
-                />
-              </div>
-              <Input
-                label="Branch"
-                id="home-manual-branch"
-                type="text"
-                placeholder="e.g. main"
-                value={manualFields.branch}
-                onChange={setManual('branch')}
-                optional
-              />
-            </div>
-          )}
-
-          {/* Error banner */}
-          {pageState === 'error' && errorMsg && (
-            <div className="home-form-error" role="alert">
-              <AlertCircle size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
-              {errorMsg}
-            </div>
-          )}
-
-          {/* Submit */}
-          <div className="home-form-actions">
-            <Button
-              type="submit"
-              variant="primary"
-              size="lg"
-              id="home-connect-submit"
-              style={{ width: '100%', justifyContent: 'center' }}
-            >
-              Link repository
-            </Button>
-          </div>
-        </form>
-      </div>
-
-      {/* Reassurance — low visual weight */}
       <div className="home-reassurance">
-        <ShieldCheck size={14} className="home-reassurance-icon" aria-hidden="true" />
-        <span>CodeAtlas reads repository structure &bull; No credentials stored &bull; Read-only</span>
+        <ShieldCheck size={13} />
+        <span>Read-only indexing &bull; No credentials stored &bull; Local analysis</span>
       </div>
     </main>
   );

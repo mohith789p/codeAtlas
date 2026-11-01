@@ -1,0 +1,47 @@
+/* RepoDetailsGrid.css (Max 150 LOC) */
+.details-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-4);
+}
+
+@media (max-width: 850px) {
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.details-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  box-shadow: var(--inner-highlight);
+}
+
+.details-desc {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+.meta-keyvalue-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: var(--text-meta);
+}
+
+.meta-key {
+  color: var(--text-muted);
+}
+
+.meta-val {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}

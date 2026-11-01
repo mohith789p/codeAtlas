@@ -30,6 +30,7 @@ export interface RepositoryMetadata {
   languages?: Record<string, number>;
   topics?: string[];
   license_name?: string;
+  file_paths?: string[];
 }
 
 export interface Repository {
@@ -57,6 +58,9 @@ export interface Repository {
   files?: number;
   folders?: number;
   processing?: ProcessingStats;
+  processing_stats?: ProcessingStats;
+  chunks?: number;
+  embeddings?: number;
   status?: 'queued' | 'downloading' | 'filtering' | 'chunking' | 'embedding' | 'indexing' | 'ready' | 'failed';
   error?: string;
   metadata_ready?: boolean;

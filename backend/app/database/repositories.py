@@ -15,6 +15,10 @@ class DatabaseRepository:
         rows = await self.conn.execute("GET", f"repos?id=eq.{repo_id}&limit=1")
         return rows[0] if rows else None
 
+    async def find_repo(self, owner: str, name: str) -> dict[str, Any] | None:
+        rows = await self.conn.execute("GET", f"repos?owner=ilike.{owner}&name=ilike.{name}&order=created_at.desc&limit=1")
+        return rows[0] if rows else None
+
     async def list_repos(self) -> list[dict[str, Any]]:
         return await self.conn.execute("GET", "repos?order=updated_at.desc") or []
 

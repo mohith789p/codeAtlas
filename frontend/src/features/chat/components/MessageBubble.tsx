@@ -5,6 +5,7 @@ import { Bot } from 'lucide-react';
 import type { ChatMessage, Citation } from '../types';
 import { stripCitationMetadata } from '../../../shared/utils/citations';
 import { CitationChip } from './CitationChip';
+import './MessageBubble.css';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -25,15 +26,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onCitatio
   }
 
   return (
-    <div
-      className="message-row message-row-assistant"
-      aria-label={`CodeAtlas: ${message.content || 'Thinking…'}`}
-    >
+    <div className="message-row message-row-assistant" aria-label={`CodeAtlas: ${message.content || 'Thinking…'}`}>
       <div className="message-identity">
-        <span className="message-identity-icon" aria-hidden="true">
-          <Bot size={14} />
-        </span>
-        <span className="message-identity-label">CodeAtlas Bot</span>
+        <span className="message-identity-icon"><Bot size={13} /></span>
+        <span className="message-identity-label">CodeAtlas Intelligence</span>
       </div>
 
       <div className="message-bubble-assistant" role="article">
@@ -43,23 +39,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onCitatio
               {stripCitationMetadata(message.content, message.citations ?? [])}
             </ReactMarkdown>
           ) : (
-            <div className="message-loading" role="status" aria-label="CodeAtlas is thinking…">
-              <div className="typing-dots" aria-hidden="true">
-                <span className="typing-dot" />
-                <span className="typing-dot" />
-                <span className="typing-dot" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="typing-dots">
+                <span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" />
               </div>
-              <span style={{ fontSize: 'var(--text-meta)', color: 'var(--text-muted)' }}>
-                Thinking…
-              </span>
+              <span style={{ fontSize: 'var(--text-meta)', color: 'var(--text-muted)' }}>Analyzing repository...</span>
             </div>
           )}
         </div>
       </div>
 
       {message.citations && message.citations.length > 0 && (
-        <div className="citations-block" aria-label="Source references">
-          <p className="citations-label">Sources</p>
+        <div className="citations-block">
+          <p className="citations-label">Referenced Sources</p>
           <div className="citation-list">
             {message.citations.map((citation, i) => (
               <CitationChip

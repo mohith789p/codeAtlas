@@ -1,98 +1,62 @@
-/*
- * CodeAtlas Design System — tokens.css
- * 01 — Foundations & Design Tokens (Single Source of Truth)
- *
- * ALL color, typography, spacing, radius, elevation, border, and motion
- * values are defined here as CSS custom properties. Components and pages
- * reference these tokens by name — never raw values.
- *
- * Frozen. Changes to tokens must be made here and take effect everywhere.
- */
-
+/* CodeAtlas Design System — tokens.css (Max 150 LOC) */
 :root {
-  /* ─── 1. RAW COLOR TOKENS (never use directly in components) ─── */
-  --raw-obsidian-950: #090a0f;
-  --raw-obsidian-900: #0e1017;
-  --raw-obsidian-850: #141722;
-  --raw-obsidian-800: #1a1e2c;
-  --raw-code-bg: #0b0d14;
-  --raw-white-crisp: #f1f3f9;
-  --raw-slate-300: #9499ad;
-  --raw-slate-400: #7e859b;
-  --raw-slate-500: #636a82;
-  --raw-slate-600: #43485c;
-  --raw-violet-500: #8b5cf6;
-  --raw-violet-600: #7c3aed;
-  --raw-violet-700: #6d28d9;
-  --raw-violet-400: #a78bfa;
-  --raw-emerald-400: #10b981;
-  --raw-amber-400: #f59e0b;
-  --raw-red-400: #ef4444;
-  --raw-blue-400: #3b82f6;
-  --raw-border: #1f2333;
+  /* Surfaces: Depth ladder using zinc/slate undertones */
+  --bg-primary: #0b0c10;
+  --bg-sidebar: #0f1117;
+  --bg-surface: #141721;
+  --bg-elevated: #1a1e2b;
+  --bg-code: #0d0f15;
 
-  /* ─── 2. SEMANTIC TOKENS — always use these in components ─── */
+  /* Text hierarchy */
+  --text-primary: #f3f5fa;
+  --text-secondary: #9aa1b6;
+  --text-muted: #646b84;
+  --text-metadata: #8088a2;
+  --text-disabled: #474e64;
 
-  /* 2.1 Surfaces (Elevation Ladder - Neutral Obsidian & Slate) */
-  --bg-primary: #090a0f;   /* Level 0 — main application background */
-  --bg-sidebar: #0e1017;   /* Level 1 — sidebar / navigation */
-  --bg-surface: #141722;   /* Level 2 — cards, grouped surfaces */
-  --bg-elevated: #1a1e2c;  /* Level 3 — modals, dropdowns, popovers */
-  --bg-code: #0b0d14;      /* Code viewer — unified neutral code surface */
+  /* Accents: Indigo-violet developer identity */
+  --accent-violet-ui: #7c3aed;
+  --accent-violet-surface: #6d28d9;
+  --accent-violet-surface-pressed: #5b21b6;
+  --accent-violet-soft: #a78bfa;
 
-  /* 2.2 Text (Clear Contrast Hierarchy) */
-  --text-primary: #f1f3f9;     /* Main/body text, headings */
-  --text-secondary: #9499ad;   /* Supporting text */
-  --text-muted: #636a82;       /* Low-priority metadata */
-  --text-metadata: #7e859b;    /* Repository metadata labels */
-  --text-disabled: #43485c;    /* Disabled control labels */
-
-  /* 2.3 Violet Family — Single Primary Accent (Brand & AI Identity) */
-  --accent-violet-ui: #8b5cf6;             /* Borders, icons, focus rings, indicators */
-  --accent-violet-surface: #7c3aed;        /* Filled CTA/button backgrounds */
-  --accent-violet-surface-pressed: #6d28d9; /* Pressed CTA/button */
-  --accent-violet-soft: #a78bfa;           /* Text, links, citations, active nav labels */
-
-  /* 2.4 Semantic Colors (Minimal & Functional) */
+  /* Semantic status indicators */
   --success: #10b981;
   --warning: #f59e0b;
   --error: #ef4444;
   --info: #3b82f6;
 
-  /* 2.5 Borders (Crisp 1px Neutral Separation) */
-  --border-subtle: #1f2333;
-  --border-hover: #2f364e;
-  --border-focus: #8b5cf6;   /* = accent-violet-ui */
-  --border-error: #ef4444;   /* = error */
+  /* Borders & Specular highlights */
+  --border-subtle: #1e2232;
+  --border-hover: #2e354c;
+  --border-focus: #7c3aed;
+  --border-error: #ef4444;
+  --inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 
-  /* ─── 7. TYPOGRAPHY ─── */
+  /* Typography */
   --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-code: 'JetBrains Mono', 'IBM Plex Mono', 'Fira Code', monospace;
+  --font-code: 'JetBrains Mono', 'Fira Code', 'IBM Plex Mono', monospace;
+  --text-hero: clamp(2rem, 4vw, 3rem);
+  --text-repo-name: clamp(1.5rem, 2.5vw, 2rem);
+  --text-page-title: clamp(1.25rem, 2vw, 1.75rem);
+  --text-section-heading: 1.125rem;
+  --text-body: 0.9375rem;
+  --text-secondary-sm: 0.875rem;
+  --text-nav: 0.875rem;
+  --text-meta: 0.8125rem;
+  --text-code: 0.875rem;
 
-  /* Type scale */
-  --text-hero: clamp(2.5rem, 5vw, 3.5rem); /* 40–56px */
-  --text-repo-name: clamp(2rem, 3vw, 2.5rem); /* 32–40px */
-  --text-page-title: clamp(1.75rem, 2.5vw, 2rem); /* 28–32px */
-  --text-section-heading: clamp(1.25rem, 2vw, 1.5rem); /* 20–24px */
-  --text-body: 0.9375rem; /* 15px */
-  --text-secondary-sm: 0.875rem; /* 14px */
-  --text-nav: 0.875rem; /* 14px */
-  --text-meta: 0.8125rem; /* 13px */
-  --text-code: 0.875rem; /* 14px */
-
-  /* Font weights */
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* Line heights */
-  --leading-tight: 1.2;
+  --leading-tight: 1.25;
   --leading-snug: 1.4;
   --leading-normal: 1.6;
   --leading-relaxed: 1.7;
 
-  /* ─── 8. SPACING (8px base system) ─── */
+  /* Spacing */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -100,39 +64,30 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
-  --space-16: 64px;
 
-  /* ─── 9. RADIUS ─── */
-  --radius-input: 7px;   /* Input, Button: 6–8px */
-  --radius-btn: 7px;
-  --radius-sm: 8px;      /* Small surface */
-  --radius-card: 10px;   /* Larger card: 10–12px */
-  --radius-modal: 12px;  /* Modal */
-  --radius-code: 4px;    /* Code/editor panel edge */
+  /* Radius */
+  --radius-input: 6px;
+  --radius-btn: 6px;
+  --radius-sm: 6px;
+  --radius-card: 10px;
+  --radius-modal: 12px;
+  --radius-code: 6px;
 
-  /* ─── 11. BORDERS ─── */
+  /* Borders & Motion */
   --border-width: 1px;
   --border-width-focus: 2px;
-  --border-indicator: 2px;  /* Active nav left indicator */
-
-  /* ─── 12. MOTION ─── */
+  --border-indicator: 2px;
   --duration-fast: 100ms;
   --duration-base: 150ms;
   --duration-nav: 175ms;
-  --duration-panel: 225ms;
-  --duration-modal: 150ms;
-  --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
-  --ease-in-out: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --duration-panel: 220ms;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* ─── COMPONENT COMPOSITIONS ─── */
-
-  /* Focus ring — applied via :focus-visible */
+  /* Focus & Layout metrics */
   --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--border-focus);
-
-  /* Sidebar dimensions */
   --sidebar-width: 220px;
+  --sidebar-width-rail: 58px;
   --sidebar-width-collapsed: 0px;
-
-  /* File tree width */
-  --filetree-width: 240px;
+  --filetree-width: 260px;
 }

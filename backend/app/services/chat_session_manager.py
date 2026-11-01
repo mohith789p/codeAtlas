@@ -1,8 +1,6 @@
-import hashlib
-import logging
+import hashlib, logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
-
 from app.database.chat_repository import ChatDatabaseRepository
 from app.schemas.chat import ChatMessage, ChatSession
 
@@ -31,16 +29,20 @@ class ChatSessionManager:
 
     async def create_session(self, repo_id: str) -> ChatSession:
         session_id = str(uuid4())
-        now = datetime.now(timezone.utc).isoformat()
-        session = ChatSession(id=session_id, repository_id=repo_id, created_at=now, updated_at=now)
-        self._sessions[session_id] = session
-        self._repo_sessions.setdefault(repo_id, []).append(session_id)
+        await self.ensure_session(session_id, repo_id)
         self._messages[session_id] = []
+        return self._sessions[str(safe_uuid(session_id))]
+
+    async def ensure_session(self, session_id: str, repo_id: str) -> None:
+        sid, rid = str(safe_uuid(session_id)), str(safe_uuid(repo_id))
+        now = datetime.now(timezone.utc).isoformat()
+        if sid not in self._sessions:
+            self._sessions[sid] = ChatSession(id=sid, repository_id=rid, created_at=now, updated_at=now)
+            self._repo_sessions.setdefault(rid, []).append(sid)
         try:
-            await self.db.create_session(safe_uuid(session_id), safe_uuid(repo_id), now)
+            await self.db.create_session(safe_uuid(sid), safe_uuid(rid), now)
         except Exception as exc:
-            logger.warning("Database chat session write failed, falling back to memory: %s", exc)
-        return session
+            logger.warning("Database ensure session failed: %s", exc)
 
     async def list_sessions(self, repo_id: str) -> list[ChatSession]:
         try:
@@ -56,7 +58,7 @@ class ChatSessionManager:
                         self._repo_sessions.setdefault(repo_id, []).append(s.id)
                 return db_sessions
         except Exception as exc:
-            logger.warning("Database chat session read failed, falling back to memory: %s", exc)
+            logger.warning("Database chat session read failed: %s", exc)
         return [self._sessions[sid] for sid in self._repo_sessions.get(repo_id, []) if sid in self._sessions]
 
     async def get_messages(self, session_id: str) -> list[ChatMessage]:
@@ -70,31 +72,32 @@ class ChatSessionManager:
                 self._messages[session_id] = db_msgs
                 return db_msgs
         except Exception as exc:
-            logger.warning("Database chat messages read failed, falling back to memory: %s", exc)
+            logger.warning("Database chat messages read failed: %s", exc)
         return self._messages.get(session_id, [])
 
     async def delete_sessions(self, repo_id: str) -> None:
         try:
             await self.db.delete_sessions(safe_uuid(repo_id))
         except Exception as exc:
-            logger.warning("Database chat delete failed, falling back to memory: %s", exc)
+            logger.warning("Database chat delete failed: %s", exc)
         for sid in self._repo_sessions.pop(repo_id, []):
             self._sessions.pop(sid, None)
             self._messages.pop(sid, None)
 
-    async def append_message(self, session_id: str, message: ChatMessage) -> None:
+    async def append_message(self, session_id: str, message: ChatMessage, repo_id: str | None = None) -> None:
         self._messages.setdefault(session_id, []).append(message)
+        rid = repo_id or (self._sessions[session_id].repository_id if session_id in self._sessions else None)
+        if rid:
+            await self.ensure_session(session_id, rid)
         if session_id in self._sessions:
             self._sessions[session_id].updated_at = datetime.now(timezone.utc).isoformat()
         try:
             payload = {
-                "id": str(safe_uuid(message.id)),
-                "session_id": str(safe_uuid(session_id)),
-                "role": message.role,
-                "content": message.content,
+                "id": str(safe_uuid(message.id)), "session_id": str(safe_uuid(session_id)),
+                "role": message.role, "content": message.content,
                 "citations": [c.model_dump() if hasattr(c, "model_dump") else c for c in message.citations],
                 "created_at": message.created_at,
             }
             await self.db.insert_message(payload)
         except Exception as exc:
-            logger.warning("Database chat message insert failed, falling back to memory: %s", exc)
+            logger.warning("Database chat message insert failed: %s", exc)

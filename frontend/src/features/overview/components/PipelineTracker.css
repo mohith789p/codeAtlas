@@ -1,0 +1,84 @@
+/* PipelineTracker.css (Max 150 LOC) */
+.pipeline-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  box-shadow: var(--inner-highlight);
+}
+
+.pipeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pipeline-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-3);
+  position: relative;
+}
+
+.pipeline-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+}
+
+.pipeline-step.step-completed {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.04);
+}
+
+.pipeline-step.step-active {
+  border-color: var(--accent-violet-ui);
+  background: rgba(124, 58, 237, 0.06);
+}
+
+.step-indicator-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 0.6875rem;
+  font-weight: var(--weight-bold);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+}
+
+.step-completed .step-badge {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+}
+
+.step-active .step-badge {
+  background: var(--accent-violet-ui);
+  color: #fff;
+}
+
+.step-name {
+  font-size: var(--text-meta);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.step-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}

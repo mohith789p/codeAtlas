@@ -29,6 +29,7 @@ class RepoRow:
     processing_stats: dict[str, Any] = field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    pushed_at: datetime | None = None
 
 
 @dataclass

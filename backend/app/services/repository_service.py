@@ -47,6 +47,9 @@ class RepositoryService:
         stats = ProcessingStats(**stats_dict)
         url = row.get("url") or row.get("repository_key") or f"https://github.com/{row.get('owner', 'local')}/{row.get('name', 'repo')}"
         meta = row.get("repository_metadata") or {}
+        created_at = meta.get("github_created_at") or meta.get("created_at") or row.get("created_at")
+        updated_at = meta.get("github_updated_at") or meta.get("updated_at") or row.get("updated_at")
+        pushed_at = meta.get("pushed_at") or row.get("pushed_at")
 
         return Repository(
             id=row["id"],
@@ -74,4 +77,7 @@ class RepositoryService:
             files_ready=row.get("files_ready", False),
             processing=stats,
             repository_metadata=meta,
+            created_at=created_at,
+            updated_at=updated_at,
+            pushed_at=pushed_at,
         )

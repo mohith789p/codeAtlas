@@ -26,6 +26,17 @@ async def ingest_repository(
     except IngestionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
+    existing = await repo_service.db_repo.find_repo(owner, repo_name)
+    if existing:
+        repo = repo_service._row_to_model(existing)
+        if repo.status != IngestionStatus.FAILED:
+            logger.info("Reusing existing repository %s (%s) with status '%s'", repo.id, repo.full_name, repo.status.value)
+            return repo
+        repo.status = IngestionStatus.QUEUED
+        await repo_service.db_repo.update_repo_status(repo.id, IngestionStatus.QUEUED.value)
+        background_tasks.add_task(ingestion_service.run_pipeline, repo, request.branch)
+        return repo
+
     # Create new repository record in QUEUED state
     repo = Repository(
         id=uuid4(),
@@ -41,8 +52,6 @@ async def ingest_repository(
         "url": repo.url, "branch": repo.branch, "status": repo.status.value,
     }
     await repo_service.db_repo.upsert_repo(payload)
-
-    # Hand off to background worker so HTTP request returns 202 immediately
     background_tasks.add_task(ingestion_service.run_pipeline, repo, request.branch)
     logger.info("Queued background ingestion for repo %s (%s)", repo.id, repo.full_name)
     return repo

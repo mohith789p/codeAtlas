@@ -57,6 +57,9 @@ class GitHubClient:
             except Exception:
                 pass
 
+            lic = repo_data.get("license") or {}
+            lic_name = lic.get("name") if isinstance(lic, dict) else None
+
             return {
                 "owner": owner,
                 "name": repo,
@@ -69,6 +72,11 @@ class GitHubClient:
                 "forks": repo_data.get("forks_count", 0),
                 "contributors": contribs,
                 "topics": repo_data.get("topics", []),
+                "created_at": repo_data.get("created_at"),
+                "updated_at": repo_data.get("updated_at"),
+                "pushed_at": repo_data.get("pushed_at"),
+                "visibility": repo_data.get("visibility", "public"),
+                "license_name": lic_name,
             }
 
     async def fetch_file_content(self, owner: str, repo: str, branch: str, file_path: str) -> str:

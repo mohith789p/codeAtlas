@@ -1,0 +1,73 @@
+/* CodeAtlas — animations.css (Max 150 LOC) */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes skeletonPulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeletonPulse 1.8s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes indeterminateProgress {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(0%); }
+  100% { transform: translateX(100%); }
+}
+
+.top-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  overflow: hidden;
+  z-index: 9999;
+}
+
+.top-progress-indicator {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, var(--accent-violet-ui), var(--accent-violet-soft));
+  animation: indeterminateProgress 1.4s infinite ease-in-out;
+}
+
+/* Modern clean spinner */
+.codeatlas-loader {
+  display: inline-block;
+  width: var(--loader-size, 20px);
+  height: var(--loader-size, 20px);
+  border: 2px solid rgba(124, 58, 237, 0.2);
+  border-top-color: var(--accent-violet-soft);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
