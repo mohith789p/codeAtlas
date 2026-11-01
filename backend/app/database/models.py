@@ -22,7 +22,6 @@ class RepoRow:
     size_kb: int | None = None
     stars: int = 0
     forks: int = 0
-    open_issues: int = 0
     metadata_ready: bool = False
     files_ready: bool = False
     contributor_details: list[dict[str, Any]] = field(default_factory=list)

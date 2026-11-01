@@ -5,6 +5,7 @@ import httpx
 from app.schemas.repository import Contributor, Repository
 from app.shared.config import Settings, get_settings
 from app.shared.exceptions import IngestionError
+from app.shared.observability import safe_traceable
 
 _GITHUB_URL_PATTERN = re.compile(r"^(?:https?://)?(?:www\.)?github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+?)(?:\.git)?/?$")
 
@@ -33,6 +34,7 @@ class GitHubClient:
             headers["Authorization"] = f"Bearer {self.settings.github_token}"
         return headers
 
+    @safe_traceable(name="github_fetch_metadata", run_type="tool")
     async def fetch_repository_metadata(self, url: str) -> dict[str, Any]:
         """Fetch metadata, languages, and contributors for a GitHub repository."""
         owner, repo = parse_github_url(url)

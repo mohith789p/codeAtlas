@@ -3,6 +3,7 @@ from typing import Any
 
 from app.schemas.retrieval import RetrievalResult
 from app.shared.config import Settings, get_settings
+from app.shared.observability import safe_traceable
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class CrossEncoderReranker:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
+    @safe_traceable(name="rerank_chunks", run_type="chain")
     def rerank(
         self, query: str, candidates: list[RetrievalResult], top_k: int = 4
     ) -> list[RetrievalResult]:

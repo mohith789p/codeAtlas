@@ -1,6 +1,7 @@
 import re
 from app.schemas.response import ValidatedCitation
 from app.schemas.retrieval import RetrievalResult
+from app.shared.observability import safe_traceable
 
 # Regex matching [filepath:start-end] or [filepath:line] or [filepath#L10-L20]
 _CITATION_REGEX = re.compile(
@@ -11,6 +12,7 @@ _CITATION_REGEX = re.compile(
 class CitationValidator:
     """Parses citations from generated text and validates them against retrieved chunks."""
 
+    @safe_traceable(name="validate_citations", run_type="tool")
     def validate_citations(
         self, text: str, chunks: list[RetrievalResult]
     ) -> list[ValidatedCitation]:

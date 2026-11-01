@@ -4,31 +4,48 @@ import type { Citation } from '../../features/chat/types';
  * Strips raw inline citation text from model output so it can be rendered
  * cleanly as UI chips without cluttering the markdown text.
  */
-export function stripCitationMetadata(content: string, citations: Citation[]): string {
-  if (!citations.length) return content;
+export function stripCitationMetadata(content: string, citations: Citation[] = []): string {
+  if (!content) return '';
 
   const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  const citationPatterns = citations.flatMap((citation) => {
-    if (!citation.file || citation.line_start === undefined) return [];
+  const citationPatterns = (citations || []).flatMap((citation) => {
+    if (!citation.file) return [];
     const file = escapeRegex(citation.file);
     const basename = file.split('/').pop() ?? file;
     const end = citation.line_end ?? citation.line_start;
-    const range =
-      citation.line_start === end
-        ? `${citation.line_start}`
-        : `${citation.line_start}[-–]${end}`;
+    const range = citation.line_start !== undefined
+      ? (end && end !== citation.line_start
+          ? `[:#]L?${citation.line_start}[-–]L?${end}`
+          : `[:#]L?${citation.line_start}`)
+      : '(?:[:#]L?\\d+(?:[-–]L?\\d+)?)?';
     const symbol = citation.symbol
       ? `(?:[ \\t]+(?:\\(${escapeRegex(citation.symbol)}\\)|${escapeRegex(citation.symbol)}))?`
       : `(?:[ \\t]+\\([A-Za-z_][A-Za-z0-9_.]*\\))?`;
-    return [`[ \\t]*\\x60?(?:${file}|${basename}):${range}${symbol}[ \\t]*\\x60?`];
+
+    return [
+      `\\[[ \\t]*\\x60?(?:${file}|${basename})${range}${symbol}[ \\t]*\\x60?[ \\t]*\\]`,
+      `[ \\t]*\\x60?(?:${file}|${basename})${range}${symbol}[ \\t]*\\x60?`,
+    ];
   });
 
-  if (!citationPatterns.length) return content;
-  const pattern = new RegExp(citationPatterns.join('|'), 'g');
+  // Generic bracketed citation pattern: e.g. [src/app.py:10-20], [README.md]
+  const genericCitation = '\\[[ \\t]*[a-zA-Z0-9_\\-./\\\\]+(?:[:#]L?\\d+(?:[-–]L?\\d+)?)?[ \\t]*\\]';
+  // Empty brackets left behind: [], [ ], [, ], etc.
+  const emptyBrackets = '\\[[ \\t,;]*\\]';
+
+  const pattern = new RegExp([...citationPatterns, genericCitation, emptyBrackets].join('|'), 'g');
+
   return content
     .split(/(```[\s\S]*?```)/g)
-    .map((part, index) => (index % 2 === 1 ? part : part.replace(pattern, '')))
+    .map((part, index) => {
+      if (index % 2 === 1) return part; // Keep fenced code blocks untouched
+      return part
+        .replace(pattern, '')
+        .replace(/\[[ \t,;]*\]/g, '') // Ensure any remaining empty brackets are stripped
+        .replace(/[ \t]+([.,;:!?])/g, '$1') // Prevent orphan space before punctuation (e.g. "events ." -> "events.")
+        .replace(/[ \t]{2,}/g, ' ');
+    })
     .join('')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

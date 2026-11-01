@@ -63,7 +63,6 @@ class Repository(BaseModel):
     contributors: list[Contributor] = Field(default_factory=list)
     stars: int = 0
     forks: int = 0
-    open_issues: int = 0
     size_kb: int | None = None
     visibility: str | None = None
     topics: list[str] = Field(default_factory=list)

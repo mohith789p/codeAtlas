@@ -4,6 +4,7 @@ import httpx
 
 from app.shared.config import Settings, get_settings
 from app.shared.exceptions import ProviderError
+from app.shared.observability import safe_traceable
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ class LLMClientChain:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
+    @safe_traceable(name="llm_generate", run_type="llm")
     async def generate(self, system_prompt: str, user_prompt: str) -> tuple[str, str, str]:
         """Invoke LLM chain with automatic sequential fallback across providers."""
         providers = [

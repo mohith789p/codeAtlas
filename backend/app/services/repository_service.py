@@ -66,7 +66,6 @@ class RepositoryService:
             contributors=contribs,
             stars=row.get("stars", 0),
             forks=row.get("forks", 0),
-            open_issues=row.get("open_issues") or meta.get("open_issues", 0),
             size_kb=row.get("size_kb") or meta.get("size_kb"),
             visibility=row.get("visibility") or meta.get("visibility"),
             topics=row.get("topics") or meta.get("topics") or [],

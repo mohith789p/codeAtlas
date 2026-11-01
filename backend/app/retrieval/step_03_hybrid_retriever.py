@@ -6,6 +6,7 @@ from uuid import UUID
 from app.database.repositories import DatabaseRepository
 from app.retrieval.bm25_index import get_bm25_registry
 from app.schemas.retrieval import ChunkRecord, RetrievalResult
+from app.shared.observability import safe_traceable
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class HybridRetriever:
         self.db_repo = db_repo or DatabaseRepository()
         self.bm25_registry = get_bm25_registry()
 
+    @safe_traceable(name="hybrid_retrieval", run_type="retriever")
     async def retrieve(
         self, repo_id: UUID, query_text: str, query_embedding: list[float], limit: int = 20
     ) -> tuple[list[RetrievalResult], list[RetrievalResult]]:

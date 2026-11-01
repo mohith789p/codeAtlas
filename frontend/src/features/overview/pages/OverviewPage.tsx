@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useOutletContext } from 'react-router-dom';
-import { ExternalLink, GitBranch, Globe, User, FileText, FolderOpen, Users, Unlink, Star, GitFork, CircleDot, Check, Circle } from 'lucide-react';
+import { ExternalLink, GitBranch, Globe, User, FileText, FolderOpen, Users, Unlink, Star, GitFork, Check, Circle } from 'lucide-react';
 import { repositoriesApi } from '../../repositories/api/repositories';
 import type { Repository } from '../../repositories/types';
 import { chatApi } from '../../chat/api/chat';
@@ -10,7 +10,7 @@ import { ApiError } from '../../../services/api/client';
 import { Spinner, EmptyState, ErrorState } from '../../../shared/components/ui/States';
 import './OverviewPage.css';
 
-// Language colour map — uses support tokens only, no new palette colours
+// Language colour map â€” uses support tokens only, no new palette colours
 const LANG_COLORS: Record<string, string> = {
   TypeScript: '#6366f1',
   JavaScript: '#fbbf24',
@@ -188,7 +188,6 @@ export const OverviewPage: React.FC = () => {
   const contributorsCount = contributors.length || (repo.stats?.contributors ?? 0);
   const starsCount = repo.stars ?? repo.stats?.stars ?? 0;
   const forksCount = repo.forks ?? repo.stats?.forks ?? 0;
-  const issuesCount = repo.open_issues ?? repo.stats?.open_issues ?? 0;
   const sizeKb = repo.size_kb ?? repo.stats?.size_kb;
 
   const visibility = repo.visibility ?? repositoryMetadata.visibility;
@@ -268,12 +267,12 @@ export const OverviewPage: React.FC = () => {
             title="Unlink repository"
           >
             <Unlink size={13} aria-hidden="true" />
-            {unlinking ? 'Unlinking…' : 'Unlink'}
+            {unlinking ? 'Unlinkingâ€¦' : 'Unlink'}
           </button>
         </div>
       </header>
 
-      {/* 2. Repository Scale Metrics — responsive grid utilizing horizontal space */}
+      {/* 2. Repository Scale Metrics â€” responsive grid utilizing horizontal space */}
       <section className="overview-section" aria-label="Repository statistics">
         <div className="overview-section-header">
           <p className="overview-section-label">Scale</p>
@@ -304,11 +303,6 @@ export const OverviewPage: React.FC = () => {
             label="Forks"
             icon={<GitFork size={14} aria-hidden="true" />}
           />
-          <StatCard
-            number={formatNumber(issuesCount)}
-            label="Issues"
-            icon={<CircleDot size={14} aria-hidden="true" />}
-          />
           {sizeKb !== undefined && (
             <StatCard
               number={sizeKb >= 1024
@@ -320,14 +314,14 @@ export const OverviewPage: React.FC = () => {
         </div>
       </section>
 
-      {/* 3. CodeAtlas Processing / Status — placed directly below stats for immediate readiness visibility */}
+      {/* 3. CodeAtlas Processing / Status â€” placed directly below stats for immediate readiness visibility */}
       <section aria-label="CodeAtlas processing" className="processing-section">
         <div className="processing-header">
           <p className="overview-section-label">CodeAtlas Processing Status</p>
           {(formatDuration(repo.processing?.duration_ms) || formatDate(repo.processing?.last_indexed_at)) && (
             <span className="processing-meta">
               {formatDuration(repo.processing?.duration_ms) ? `Indexed in ${formatDuration(repo.processing?.duration_ms)}` : ''}
-              {formatDate(repo.processing?.last_indexed_at) ? ` · Last indexed ${formatDate(repo.processing?.last_indexed_at)}` : ''}
+              {formatDate(repo.processing?.last_indexed_at) ? ` Â· Last indexed ${formatDate(repo.processing?.last_indexed_at)}` : ''}
             </span>
           )}
         </div>

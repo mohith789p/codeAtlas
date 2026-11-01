@@ -20,7 +20,6 @@ export interface RepositoryStats {
   size_kb?: number;
   stars?: number;
   forks?: number;
-  open_issues?: number;
 }
 
 export interface RepositoryMetadata {
@@ -50,7 +49,6 @@ export interface Repository {
   topics?: string[];
   stars?: number;
   forks?: number;
-  open_issues?: number;
   languages?: Record<string, number>;
   created_at?: string;
   updated_at?: string;

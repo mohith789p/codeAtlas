@@ -4,6 +4,7 @@ from uuid import UUID
 from app.database.repositories import DatabaseRepository
 from app.embeddings.embedding_service import EmbeddingService
 from app.schemas.retrieval import ChunkRecord
+from app.shared.observability import safe_traceable
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class ChunkIndexer:
         self.embedder = embedder or EmbeddingService()
         self.db_repo = db_repo or DatabaseRepository()
 
+    @safe_traceable(name="index_and_embed", run_type="chain")
     async def index_chunks(
         self, repo_id: UUID, new_chunks: list[ChunkRecord], existing_chunks: list[ChunkRecord]
     ) -> int:
