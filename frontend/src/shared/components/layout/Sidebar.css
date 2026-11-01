@@ -1,4 +1,4 @@
-/* Sidebar.css (Max 150 LOC) */
+/* Sidebar.css */
 .sidebar {
   width: var(--sidebar-width);
   flex-shrink: 0;

@@ -1,4 +1,4 @@
-/* MetricsRibbon.css (Max 150 LOC) */
+/* MetricsRibbon.css */
 .metrics-ribbon {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

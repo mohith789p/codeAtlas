@@ -1,4 +1,4 @@
-/* ChatInputBar.css (Max 150 LOC) */
+/* ChatInputBar.css */
 .chat-input-container {
   padding: var(--space-4) var(--space-6);
   background: var(--bg-primary);

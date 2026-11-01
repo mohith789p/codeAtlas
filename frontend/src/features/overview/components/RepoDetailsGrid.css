@@ -1,4 +1,4 @@
-/* RepoDetailsGrid.css (Max 150 LOC) */
+/* RepoDetailsGrid.css */
 .details-grid {
   display: grid;
   grid-template-columns: 2fr 1fr;

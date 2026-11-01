@@ -1,4 +1,4 @@
-/* FileTree.css (Max 150 LOC) */
+/* FileTree.css */
 .file-tree {
   width: var(--filetree-width);
   flex-shrink: 0;

@@ -1,5 +1,5 @@
 /*
- * Button — all states derived from Foundations §6
+ * Button
  * Implements: default, hover, focus, pressed, disabled
  * Variants: primary (filled CTA), secondary (outlined/ghost), icon
  */
@@ -33,7 +33,7 @@
   outline: none;
 }
 
-/* ── Primary (Filled CTA) — Foundations §6 ── */
+/* ── Primary (Filled CTA) ── */
 .btn-primary {
   background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
   color: var(--text-primary);
